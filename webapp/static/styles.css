@@ -546,6 +546,9 @@ a { color: inherit; text-decoration: none; }
 .card:hover { border-color: var(--line-strong); }
 .card.is-open { background: var(--surface); border-color: var(--line-strong); }
 
+.card--picked { border-left: 3px solid var(--accent); }
+.card--picked .card__main { padding-left: 12px; }
+
 .card__main {
   display: grid;
   grid-template-columns: 30px 46px 1fr auto;

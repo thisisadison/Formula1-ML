@@ -160,7 +160,7 @@ class PredictionService:
         features = features.sort_values("top5_probability", ascending=False)
 
         rows = []
-        for _, row in features.iterrows():
+        for position, (_, row) in enumerate(features.iterrows()):
             driver = self.reference.driver(row["driverId"])
             team = self.reference.team(row["constructorId"])
             actual = row.get("actual_position")
@@ -168,7 +168,15 @@ class PredictionService:
                 "driver": driver,
                 "team": team,
                 "top5_probability": float(row["top5_probability"]),
-                "predicted_top5": bool(row["top5_probability"] >= 0.5),
+                # Rank-based, NOT a >=50% cutoff: a real top-5 finish always
+                # names exactly 5 drivers, so the prediction should too, and
+                # this is what "5th place in the list" already looks like on
+                # screen -- a probability threshold can silently disagree
+                # with that (a borderline 5th-place driver at 42% reads as
+                # "not predicted top 5" under a cutoff despite being shown
+                # right there in the top 5 rows), which is exactly what
+                # made a real miss display as "called right."
+                "predicted_top5": position < 5,
                 "actual_position": None if pd.isna(actual) else int(actual),
                 "actual_top5": None if pd.isna(actual) else bool(1 <= actual <= 5),
                 "features": {

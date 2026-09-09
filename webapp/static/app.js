@@ -23,6 +23,7 @@ const state = {
   newsLoaded: false,
   newsItems: [],
   newsSources: [],
+  newsCategories: [],
   newsFilter: null,
   lastRetrainedAt: null,
   seasonRounds: [],
@@ -276,6 +277,11 @@ function featureBlock(key, value) {
 function driverCard(row, index, showActual) {
   const card = el("article", "card");
   card.style.setProperty("--team", row.team.color);
+  // predicted_top5 IS the top 5 rows by probability, not a raw percentage
+  // cutoff -- a real top-5 finish always names exactly 5 drivers, so this
+  // border is a visible, unambiguous marker of the 5 the model is actually
+  // picking, distinct from "happens to be ranked 5th."
+  if (row.predicted_top5) card.classList.add("card--picked");
 
   const main = el("div", "card__main");
   main.appendChild(el("div", "card__rank", String(index + 1)));
@@ -683,10 +689,14 @@ function timeAgo(seconds) {
   return `${Math.round(delta / 86400)} d ago`;
 }
 
+// Filters by topic (Drivers / Teams / Regulations / Race Weekend), not by
+// outlet -- readers want "show me driver news," not "show me one site's
+// coverage." Each headline is tagged server-side by keyword match against
+// its title+summary and can carry more than one category.
 function renderNewsFilters() {
   const box = $("#news-filter");
   box.innerHTML = "";
-  const options = [["All", null], ...state.newsSources.map((name) => [name, name])];
+  const options = [["All", null], ...state.newsCategories.map((name) => [name, name])];
   options.forEach(([label, value]) => {
     const chip = el("button", "chip", label);
     chip.classList.toggle("is-active", state.newsFilter === value);
@@ -704,12 +714,12 @@ function renderNewsList() {
   const list = $("#news-list");
   list.innerHTML = "";
   const items = state.newsFilter
-    ? state.newsItems.filter((item) => item.source === state.newsFilter)
+    ? state.newsItems.filter((item) => item.categories.includes(state.newsFilter))
     : state.newsItems;
 
   if (!items.length) {
     if (state.newsItems.length) {
-      list.appendChild(el("p", "footnote", `No recent headlines from ${state.newsFilter}.`));
+      list.appendChild(el("p", "footnote", `No recent headlines tagged "${state.newsFilter}".`));
     }
     return;
   }
@@ -766,6 +776,7 @@ async function loadNews() {
   state.newsLoaded = true;
   state.newsItems = payload.items;
   state.newsSources = payload.sources;
+  state.newsCategories = payload.categories;
   $("#news-sources").textContent =
     `Headlines from ${payload.sources.join(", ")}, refreshed every few days.`;
 

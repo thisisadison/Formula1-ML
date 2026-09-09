@@ -20,6 +20,8 @@ import time
 import feedparser
 import requests
 
+from webapp.reference import CURRENT_GRID, TEAMS
+
 FEEDS = [
     ("Formula 1", "https://www.formula1.com/content/fom-website/en/latest/all.xml"),
     ("Autosport", "https://www.autosport.com/rss/f1/news/"),
@@ -39,6 +41,48 @@ USER_AGENT = "Apex-F1/1.0 (+https://github.com/thisisadison/Formula1-ML)"
 
 _TAG = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
+
+# Topic filtering, not outlet filtering -- readers want "show me driver
+# news" or "show me regulation news," not "show me BBC's coverage." Plain
+# keyword matching against each headline's title+summary: no per-article
+# LLM call, no external classifier, just a lookup against words that
+# reliably indicate what a story is actually about. A story can land in
+# more than one bucket (a driver signing for a new team is both), and one
+# that matches nothing still surfaces under "Other" rather than vanishing.
+CATEGORIES = ["Drivers", "Teams", "Regulations", "Race Weekend", "Other"]
+
+DRIVER_KEYWORDS = {surname.lower() for _, surname, _ in CURRENT_GRID.values()} | {
+    "driver", "drivers", "rookie", "seat", "signs", "signing", "contract",
+    "line-up", "lineup", "retire", "retirement", "debut",
+}
+TEAM_KEYWORDS = {name.lower() for name, _ in TEAMS.values()} | {
+    "team", "constructor", "livery", "sponsor", "factory", "upgrade",
+    "car launch", "power unit", "engine deal", "principal",
+}
+REGULATION_KEYWORDS = {
+    "fia", "regulation", "regulations", "rule change", "technical directive",
+    "penalty", "penalised", "penalized", "steward", "stewards", "protest",
+    "budget cap", "disqualified", "disqualification", "appeal", "rules",
+}
+RACE_WEEKEND_KEYWORDS = {
+    "grand prix", "qualifying", "practice", "pole position", "podium",
+    "victory", "wins", "crash", "crashes", "safety car", "pit stop",
+    "sprint race", "fastest lap", "race result", "results",
+}
+
+
+def _categorize(title: str, summary: str) -> list:
+    text = f"{title} {summary}".lower()
+    hits = []
+    if any(keyword in text for keyword in DRIVER_KEYWORDS):
+        hits.append("Drivers")
+    if any(keyword in text for keyword in TEAM_KEYWORDS):
+        hits.append("Teams")
+    if any(keyword in text for keyword in REGULATION_KEYWORDS):
+        hits.append("Regulations")
+    if any(keyword in text for keyword in RACE_WEEKEND_KEYWORDS):
+        hits.append("Race Weekend")
+    return hits or ["Other"]
 
 
 def _clean(text: str) -> str:
@@ -85,14 +129,15 @@ def _fetch_one(source: str, url: str) -> list:
         link = entry.get("link")
         if not title or not link:
             continue
-        summary = _clean(entry.get("summary") or entry.get("description"))
+        summary = _clean(entry.get("summary") or entry.get("description"))[:SUMMARY_CHARS]
         items.append({
             "source": source,
             "title": title,
             "link": link,
-            "summary": summary[:SUMMARY_CHARS],
+            "summary": summary,
             "image": _image_for(entry),
             "published": _published_ts(entry),
+            "categories": _categorize(title, summary),
         })
     return items
 
@@ -113,7 +158,11 @@ class NewsService:
                 try:
                     items.extend(future.result())
                 except Exception as exc:
-                    errors.append(f"{name}: {type(exc).__name__}")
+                    # The status code / URL / reason, not just the exception
+                    # class -- "Autosport: HTTPError" doesn't tell anyone
+                    # (including me, debugging this later) whether that feed
+                    # 403'd, 404'd, moved, or timed out.
+                    errors.append(f"{name}: {type(exc).__name__}: {exc}")
         items.sort(key=lambda item: item["published"], reverse=True)
         self._items = items
         self._errors = errors
@@ -130,6 +179,7 @@ class NewsService:
         return {
             "items": self._items,
             "sources": [name for name, _ in FEEDS],
+            "categories": CATEGORIES,
             "fetched_at": self._fetched_at or None,
             "errors": self._errors,
         }
