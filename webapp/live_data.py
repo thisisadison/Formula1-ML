@@ -78,6 +78,49 @@ class LiveData:
             self.last_error = f"{type(exc).__name__}: {exc}"
             return None
 
+    def season_roster(self, year: int):
+        """Who is actually racing this season: driver codes -> names, and
+        constructor ids -> names, straight from the API.
+
+        Without this, anyone who joined the grid after the hardcoded
+        tables in reference.py were written shows up as a bare three-letter
+        code with no photograph (the frontend only looks one up when it has
+        a real name). Returns None when unreachable, leaving those tables
+        as the fallback.
+        """
+        key = f"roster_{year}"
+        cached = self._read_cache(key)
+        if cached is not None:
+            return cached
+        try:
+            drivers = self._get(f"{year}/drivers.json")["DriverTable"]["Drivers"]
+            constructors = self._get(f"{year}/constructors.json")["ConstructorTable"]["Constructors"]
+        except Exception as exc:
+            self.online = False
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return None
+
+        payload = {
+            "drivers": [{
+                "code": driver.get("code"),
+                "name": f"{driver.get('givenName', '')} {driver.get('familyName', '')}".strip(),
+                "nationality": driver.get("nationality"),
+                "wiki_url": driver.get("url"),
+            } for driver in drivers if driver.get("code")],
+            "teams": [{
+                "id": team["constructorId"],
+                "name": team.get("name"),
+            } for team in constructors],
+        }
+        self._write_cache(key, payload)
+        self.online = True
+        return payload
+
+    def _get(self, path: str, **params) -> dict:
+        response = requests.get(f"{API}/{path}", params={"limit": 100, **params}, timeout=15)
+        response.raise_for_status()
+        return response.json()["MRData"]
+
     def refresh_season(self, year: int) -> dict:
         """Pull a season's results and merge them into
         data/multi_circuit_fresh.csv, which is what the feature builders

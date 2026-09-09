@@ -70,6 +70,25 @@ TEAMS = {
 
 NEUTRAL_TEAM_COLOR = "#8E8E93"
 
+
+def _fallback_team_color(constructor_id: str) -> str:
+    """A stable, distinct colour for a team that isn't in TEAMS yet.
+
+    A team that joins the grid after this file was written would otherwise
+    render in the same flat grey as every other unknown, making two new
+    teams indistinguishable. Derived from the id so it never changes
+    between reloads. Deliberately not a guess at the real livery -- add the
+    team to TEAMS to pin its actual colour.
+    """
+    # FNV-1a, then spread across the wheel in large steps. A plain
+    # multiply-and-mod lands similar-length ids on near-identical hues
+    # ("cadillac" and "audi" came out 4 degrees apart), which is the one
+    # thing this function exists to avoid.
+    digest = 2166136261
+    for char in constructor_id:
+        digest = ((digest ^ ord(char)) * 16777619) & 0xFFFFFFFF
+    return f"hsl({(digest % 24) * 15}, 62%, 55%)"
+
 # Slugs seen in the 2023+ data, plus the official circuit name and the
 # country it sits in (for the flag chip in the UI).
 CIRCUITS = {
@@ -109,6 +128,7 @@ class Reference:
 
     def __init__(self, raw: dict):
         self._drivers = self._build_driver_directory(raw["drivers"])
+        self._team_names = {}  # filled by augment() from the live roster
         self._circuit_names_by_numeric_id = self._build_circuit_directory(raw["races"])
 
     @staticmethod
@@ -139,6 +159,27 @@ class Reference:
         latest = races.sort_values("year").groupby("circuitId").last()
         return {str(cid): row["name"] for cid, row in latest.iterrows()}
 
+    def augment(self, roster: dict) -> None:
+        """Merge a live season roster (see LiveData.season_roster) over the
+        static tables.
+
+        The API is authoritative for who currently holds a code, so it wins
+        over CURRENT_GRID -- which is a hand-written snapshot and goes stale
+        the moment the grid changes. Teams only take a name from here;
+        colours stay local, since the API doesn't publish them.
+        """
+        for driver in roster.get("drivers", []):
+            if not driver.get("code") or not driver.get("name"):
+                continue
+            self._drivers[driver["code"]] = {
+                "name": driver["name"],
+                "nationality": driver.get("nationality"),
+                "wiki_url": driver.get("wiki_url"),
+            }
+        for team in roster.get("teams", []):
+            if team.get("id") and team.get("name"):
+                self._team_names[team["id"]] = team["name"]
+
     def driver(self, code: str) -> dict:
         info = self._drivers.get(code)
         if info is None:
@@ -150,7 +191,8 @@ class Reference:
         if key in TEAMS:
             name, color = TEAMS[key]
             return {"id": key, "name": name, "color": color}
-        return {"id": key, "name": key.replace("_", " ").title(), "color": NEUTRAL_TEAM_COLOR}
+        name = self._team_names.get(key, key.replace("_", " ").title())
+        return {"id": key, "name": name, "color": _fallback_team_color(key)}
 
     def circuit(self, circuit_id) -> dict:
         key = str(circuit_id)

@@ -42,6 +42,15 @@ live = LiveData(DATA_DIR)
 news = NewsService()
 
 
+def _refresh_roster() -> None:
+    """Pull this season's driver/constructor names into the reference
+    tables, so anyone who joined the grid recently shows a real name (and
+    therefore gets a photo) instead of a bare three-letter code."""
+    roster = live.season_roster(datetime.date.today().year)
+    if roster:
+        reference.augment(roster)
+
+
 def _rebuild_service() -> None:
     """Re-read the CSVs after a refresh has written new rows into them.
 
@@ -50,6 +59,7 @@ def _rebuild_service() -> None:
     keep serving predictions from the pre-refresh data.
     """
     global service, analyst
+    _refresh_roster()
     service = PredictionService(DATA_DIR, model_store, reference)
     analyst = RaceAnalyst(service)
 
@@ -58,6 +68,10 @@ images = ImageResolver(os.path.join(DATA_DIR, "cache", "images.json"))
 
 auto_update = AutoUpdateScheduler(live, DATA_DIR, model_store, _rebuild_service, PROJECT_ROOT)
 auto_update.start()
+
+# Off the startup path: a name lookup must never delay the server coming up,
+# and the static tables are a perfectly good answer until it lands.
+threading.Thread(target=_refresh_roster, daemon=True, name="f1-roster").start()
 
 
 class ChatRequest(BaseModel):
