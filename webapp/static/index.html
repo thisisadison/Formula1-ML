@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Apex — F1 Top-5 Predictions</title>
+<meta name="description" content="Machine-learning top-5 finish predictions for Formula 1, from pre-qualifying form alone.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="#" data-tab="predictions">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">Apex</span>
+    </a>
+    <nav class="nav__tabs" role="tablist">
+      <button class="nav__tab is-active" data-tab="predictions" role="tab">Predictions</button>
+      <button class="nav__tab" data-tab="assistant" role="tab">Assistant</button>
+      <button class="nav__tab" data-tab="news" role="tab">News</button>
+    </nav>
+    <div class="nav__status" id="nav-status" title="Data status"></div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================ PREDICTIONS ============================ -->
+  <section class="tab is-active" id="tab-predictions" role="tabpanel">
+
+    <div class="hero" id="hero">
+      <div class="hero__art" id="hero-art" aria-hidden="true"></div>
+      <div class="hero__scrim"></div>
+      <div class="hero__body">
+        <div class="hero__eyebrow" id="hero-eyebrow">Next race</div>
+        <h1 class="hero__title" id="hero-title">—</h1>
+        <div class="hero__meta" id="hero-meta"></div>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="segmented" role="tablist" aria-label="Prediction mode">
+        <button class="segmented__opt is-active" data-mode="upcoming">Next race</button>
+        <button class="segmented__opt" data-mode="replay">Replay a past race</button>
+      </div>
+
+      <div class="picker" id="picker-upcoming">
+        <div class="picker__label">Circuit</div>
+        <div class="chips" id="circuit-chips"></div>
+      </div>
+
+      <div class="picker is-hidden" id="picker-replay">
+        <div class="picker__label">Race</div>
+        <select class="select" id="race-select"></select>
+      </div>
+
+      <div class="notice is-hidden" id="predictions-notice"></div>
+
+      <div class="scoreline is-hidden" id="scoreline"></div>
+
+      <div class="grid" id="driver-list"></div>
+
+      <p class="footnote" id="predictions-footnote"></p>
+    </div>
+  </section>
+
+  <!-- ============================= ASSISTANT ============================= -->
+  <section class="tab" id="tab-assistant" role="tabpanel">
+    <div class="wrap wrap--narrow">
+      <div class="pagehead">
+        <h2 class="pagehead__title">Race analyst</h2>
+        <p class="pagehead__sub">
+          A Claude agent with read-only tools over the same model and feature table the
+          dashboard uses. It calls tools to answer — it never estimates a number itself.
+        </p>
+      </div>
+
+      <div class="notice is-hidden" id="assistant-notice"></div>
+
+      <div class="chat" id="chat"></div>
+
+      <div class="suggestions" id="suggestions">
+        <button class="chip chip--ghost">Who is most likely to finish top 5 at Singapore?</button>
+        <button class="chip chip--ghost">How is Norris going right now?</button>
+        <button class="chip chip--ghost">Is Las Vegas a good track for Verstappen?</button>
+        <button class="chip chip--ghost">How accurate was the model at Monza in 2025?</button>
+      </div>
+
+      <form class="composer" id="composer">
+        <input class="composer__input" id="composer-input" autocomplete="off"
+               placeholder="Ask about form, a circuit, or a prediction…">
+        <button class="composer__send" id="composer-send" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- =============================== NEWS =============================== -->
+  <section class="tab" id="tab-news" role="tabpanel">
+    <div class="wrap">
+      <div class="pagehead">
+        <h2 class="pagehead__title">Latest</h2>
+        <p class="pagehead__sub" id="news-sources">Headlines from official and established motorsport outlets.</p>
+      </div>
+      <div class="notice is-hidden" id="news-notice"></div>
+      <div class="news" id="news-list"></div>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tabbar__tab is-active" data-tab="predictions">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V9M10 18V5M16 18v-6M22 18H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Predictions</span>
+  </button>
+  <button class="tabbar__tab" data-tab="assistant">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 1 1-3.1-6.3M21 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Assistant</span>
+  </button>
+  <button class="tabbar__tab" data-tab="news">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM7 9h10M7 13h10M7 17h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>News</span>
+  </button>
+</nav>
+
+<script src="/app.js"></script>
+</body>
+</html>

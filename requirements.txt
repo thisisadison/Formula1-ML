@@ -1,0 +1,15 @@
+# Pipeline + data fetching
+pandas
+numpy
+scikit-learn
+joblib
+requests
+
+# Web app (webapp/)
+fastapi
+uvicorn[standard]
+feedparser
+
+# Agentic assistant (webapp/agent.py, f1_agent.py) -- optional at runtime,
+# the dashboard works without an API key
+anthropic

@@ -290,15 +290,9 @@ def load_multi_circuit_fresh_data(path: str) -> pd.DataFrame:
     return df
 
 
-def build_multi_circuit_dataset(raw: dict, fresh_path: str = None) -> pd.DataFrame:
-    """Same features as build_singapore_dataset(), but one row per driver
-    per race across EVERY circuit (restricted to MULTI_CIRCUIT_MIN_YEAR
-    onward -- same era Singapore itself has been racing in) plus any
-    freshly-fetched 2023+ seasons, instead of just historical Singapore.
-    None of FEATURE_COLUMNS describe anything Singapore-specific
-    (grid_position/in-race stats were already dropped), so this is meant
-    to be trained on and then evaluated specifically against held-out
-    Singapore races -- see train_and_select()'s test_circuit_id.
+def build_combined_raw(raw: dict, fresh_path: str = None) -> dict:
+    """Historical CSV rows and freshly-fetched 2023+ rows as ONE continuous
+    results/races timeline, with driverIds reconciled between the two.
 
     Fresh rows are folded in at the RAW results/races level, before any
     feature is computed -- not merged in afterward like
@@ -321,18 +315,31 @@ def build_multi_circuit_dataset(raw: dict, fresh_path: str = None) -> pd.DataFra
     hist_races = raw["races"][["raceId", "year", "round", "circuitId"]]
 
     fresh = load_multi_circuit_fresh_data(fresh_path or "data/multi_circuit_fresh.csv")
-    if not fresh.empty:
-        combined_results = pd.concat([
+    if fresh.empty:
+        return {"results": hist_results, "races": hist_races}
+    return {
+        "results": pd.concat([
             hist_results[["raceId", "driverId", "constructorId", "position", "points"]],
             fresh[["raceId", "driverId", "constructorId", "position", "points"]],
-        ], ignore_index=True)
-        combined_races = pd.concat([
+        ], ignore_index=True),
+        "races": pd.concat([
             hist_races,
             fresh[["raceId", "year", "round", "circuitId"]].drop_duplicates("raceId"),
-        ], ignore_index=True)
-    else:
-        combined_results, combined_races = hist_results, hist_races
-    combined_raw = {"results": combined_results, "races": combined_races}
+        ], ignore_index=True),
+    }
+
+
+def build_multi_circuit_dataset(raw: dict, fresh_path: str = None) -> pd.DataFrame:
+    """Same features as build_singapore_dataset(), but one row per driver
+    per race across EVERY circuit (restricted to MULTI_CIRCUIT_MIN_YEAR
+    onward -- same era Singapore itself has been racing in) plus any
+    freshly-fetched 2023+ seasons, instead of just historical Singapore.
+    None of FEATURE_COLUMNS describe anything Singapore-specific
+    (grid_position/in-race stats were already dropped), so this is meant
+    to be trained on and then evaluated specifically against held-out
+    Singapore races -- see train_and_select()'s test_circuit_id."""
+    combined_raw = build_combined_raw(raw, fresh_path)
+    combined_results, combined_races = combined_raw["results"], combined_raw["races"]
 
     results = combined_results.copy()
     results["position"] = pd.to_numeric(results["position"], errors="coerce")
