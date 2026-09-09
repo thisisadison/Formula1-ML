@@ -303,6 +303,102 @@ a { color: inherit; text-decoration: none; }
   max-width: 62ch;
 }
 
+/* --------------------------------------------------------------- season */
+
+.season { margin: clamp(20px, 4vw, 28px) 0 0; }
+
+.season__label {
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 11px;
+}
+
+.season__track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.season__track::-webkit-scrollbar { display: none; }
+
+.season__round {
+  flex: none;
+  scroll-snap-align: start;
+  width: 78px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 9px 4px 8px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-dim);
+  transition: transform 0.2s var(--ease), border-color 0.2s var(--ease), background 0.2s var(--ease);
+}
+.season__round:hover { border-color: var(--line-strong); }
+.season__round:active { transform: scale(0.96); }
+
+.season__round-num {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--text-faint);
+  letter-spacing: 0.03em;
+}
+
+.season__round-flag {
+  width: 22px;
+  height: 15px;
+  border-radius: 2px;
+  margin: 5px auto 4px;
+  display: block;
+  object-fit: cover;
+  background: var(--bg-elevated);
+}
+
+.season__round-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.season__round-status {
+  margin-top: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.season__round.is-done {
+  opacity: 0.55;
+}
+.season__round.is-done .season__round-status {
+  color: var(--good);
+}
+.season__round.is-done:hover { opacity: 0.85; }
+
+.season__round.is-next {
+  border-color: var(--accent);
+  background: linear-gradient(160deg, rgba(255, 45, 85, 0.14), rgba(255, 45, 85, 0.03));
+}
+.season__round.is-next .season__round-status { color: var(--accent); }
+
+.season__round.is-selected:not(.is-next) {
+  border-color: var(--text);
+  background: var(--surface-hi);
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+
 /* -------------------------------------------------------------- controls */
 
 .segmented {
@@ -514,6 +610,12 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 7px;
+  min-width: 0;
+}
+.card__team span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .card__team::before {
   content: "";
@@ -523,6 +625,18 @@ a { color: inherit; text-decoration: none; }
   background: var(--team, var(--text-faint));
   flex: none;
 }
+
+.card__team-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--ease);
+  background: rgba(255, 255, 255, 0.06);
+}
+.card__team-badge.is-loaded { opacity: 1; }
 
 .card__prob { text-align: right; min-width: 92px; }
 

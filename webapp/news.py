@@ -12,6 +12,7 @@ also renders them as text nodes, so neither layer alone is load-bearing.
 
 import concurrent.futures
 import html
+import os
 import re
 import threading
 import time
@@ -26,7 +27,11 @@ FEEDS = [
     ("BBC Sport", "https://feeds.bbci.co.uk/sport/formula1/rss.xml"),
 ]
 
-CACHE_TTL_SECONDS = 60 * 15
+# Headlines don't need to be fresher than this -- a news tab isn't the
+# race-data path, so it's fine (and much lighter on every outlet's feed)
+# to only actually refetch every few days rather than every request.
+# F1_NEWS_TTL_SECONDS overrides; default matches "refresh every 3-4 days".
+CACHE_TTL_SECONDS = int(os.environ.get("F1_NEWS_TTL_SECONDS", 3.5 * 24 * 60 * 60))
 MAX_PER_FEED = 12
 SUMMARY_CHARS = 260
 FEED_TIMEOUT_SECONDS = 12

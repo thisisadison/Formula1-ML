@@ -40,6 +40,11 @@
     </div>
 
     <div class="wrap">
+      <div class="season is-hidden" id="season">
+        <div class="season__label" id="season-label">SEASON</div>
+        <div class="season__track" id="season-track"></div>
+      </div>
+
       <div class="segmented" role="tablist" aria-label="Prediction mode">
         <button class="segmented__opt is-active" data-mode="upcoming">Next race</button>
         <button class="segmented__opt" data-mode="replay">Replay a past race</button>
@@ -107,6 +112,7 @@
         <h2 class="pagehead__title">Latest</h2>
         <p class="pagehead__sub" id="news-sources">Headlines from official and established motorsport outlets.</p>
       </div>
+      <div class="chips" id="news-filter"></div>
       <div class="notice is-hidden" id="news-notice"></div>
       <div class="news" id="news-list"></div>
     </div>

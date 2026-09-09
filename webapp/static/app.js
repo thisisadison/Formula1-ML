@@ -21,7 +21,16 @@ const state = {
   status: null,
   chatBusy: false,
   newsLoaded: false,
+  newsItems: [],
+  newsSources: [],
+  newsFilter: null,
   lastRetrainedAt: null,
+  seasonRounds: [],
+  seasonYear: null,
+  // Set only by clicking a specific future round on the season strip --
+  // everywhere else (a plain circuit chip, switching modes by hand) means
+  // "predict the next race," which is what leaving this null does.
+  upcomingRound: null,
 };
 
 const STATUS_POLL_MS = 60_000;
@@ -219,18 +228,32 @@ async function loadStatus() {
   if (autoUpdate.last_retrained && autoUpdate.last_retrained !== state.lastRetrainedAt) {
     const isFirstStatus = state.lastRetrainedAt === null;
     state.lastRetrainedAt = autoUpdate.last_retrained;
-    if (!isFirstStatus) loadPredictions();
+    if (!isFirstStatus) {
+      loadPredictions();
+      loadSeason();
+    }
   }
 }
 
 /* ------------------------------------------------------------- predictions */
+
+// A pre-created <img data-wiki="..."> that hydratePhotos() fills in later --
+// the same pattern for a driver headshot in the avatar circle and a team
+// badge next to the team name, so one batched lookup covers both.
+function wikiPhoto(title, className) {
+  const img = el("img", className);
+  img.alt = "";
+  img.loading = "lazy";
+  img.dataset.wiki = title;
+  return img;
+}
 
 function avatarFor(driver, team) {
   const avatar = el("div", "avatar");
   avatar.style.background = `linear-gradient(150deg, ${team.color}, ${team.color}55)`;
   avatar.appendChild(el("span", null, driver.code));
   if (driver.name && driver.name !== driver.code) {
-    avatar.dataset.wiki = driver.name;
+    avatar.appendChild(wikiPhoto(driver.name));
   }
   return avatar;
 }
@@ -260,7 +283,10 @@ function driverCard(row, index, showActual) {
 
   const who = el("div", "card__who");
   who.appendChild(el("div", "card__name", row.driver.name));
-  who.appendChild(el("div", "card__team", row.team.name));
+  const teamRow = el("div", "card__team");
+  teamRow.appendChild(wikiPhoto(row.team.name, "card__team-badge"));
+  teamRow.appendChild(el("span", null, row.team.name));
+  who.appendChild(teamRow);
   main.appendChild(who);
 
   const prob = el("div", "card__prob");
@@ -322,10 +348,16 @@ async function loadPredictions() {
 
   let payload;
   try {
-    payload =
-      state.mode === "upcoming"
-        ? await api(`/api/predictions/upcoming?circuit=${encodeURIComponent(state.circuit)}`)
-        : await api(`/api/predictions/race/${encodeURIComponent(state.raceId)}`);
+    if (state.mode === "upcoming") {
+      const params = new URLSearchParams({ circuit: state.circuit });
+      if (state.upcomingRound) {
+        params.set("year", state.upcomingRound.year);
+        params.set("round", state.upcomingRound.round);
+      }
+      payload = await api(`/api/predictions/upcoming?${params.toString()}`);
+    } else {
+      payload = await api(`/api/predictions/race/${encodeURIComponent(state.raceId)}`);
+    }
   } catch (error) {
     $("#driver-list").innerHTML = "";
     const notice = $("#predictions-notice");
@@ -384,15 +416,19 @@ async function loadPredictions() {
     ? "Features are strictly pre-race: championship and constructor standing going into the race, seasons of experience, average finish at this circuit, and three-race form for driver and team. Nothing from qualifying or from during the race is used. Read the score as a sanity check rather than a measure of accuracy, though — pipeline.py refits the exported model on every season before saving it, so a race shown here was part of that final fit. The honest number is the held-out score printed when you train."
     : `Predicted for the current grid, slotting in as round ${payload.slots_into.round} of ${payload.slots_into.year}. Uses pre-qualifying information only — no grid position, no lap or pit-stop times — so it holds as soon as the previous race ends. Tap a driver to see the inputs behind their number.`;
 
-  hydrateAvatars();
+  hydratePhotos();
+  renderSeasonStrip();
 }
 
-/* Photos are fetched only after the cards are on screen, and every one of them
-   is optional -- the monogram underneath is the designed default, not a
-   placeholder waiting to be replaced. */
-async function hydrateAvatars() {
-  const avatars = $$(".avatar[data-wiki]");
-  const titles = Array.from(new Set(avatars.map((node) => node.dataset.wiki)));
+/* Photos are fetched only after the cards are on screen, and every one of
+   them is optional -- driver monograms and the plain team-colour bar are
+   the designed defaults, not placeholders waiting to be replaced. Covers
+   both driver headshots (in the avatar circle) and team badges (next to
+   the team name) in one batched lookup, since both are just <img
+   data-wiki="..."> at this point. */
+async function hydratePhotos() {
+  const targets = $$("img[data-wiki]");
+  const titles = Array.from(new Set(targets.map((node) => node.dataset.wiki)));
   if (!titles.length) return;
 
   let resolved;
@@ -406,16 +442,78 @@ async function hydrateAvatars() {
     return;
   }
 
-  avatars.forEach((node) => {
-    const found = resolved[node.dataset.wiki];
+  targets.forEach((img) => {
+    const found = resolved[img.dataset.wiki];
     if (!found || !found.image) return;
-    const img = el("img");
-    img.alt = "";
-    img.loading = "lazy";
     img.addEventListener("load", () => img.classList.add("is-loaded"));
     img.addEventListener("error", () => img.remove());
     img.src = found.image;
-    node.appendChild(img);
+  });
+}
+
+/* ------------------------------------------------------------------ season */
+
+async function loadSeason() {
+  let payload;
+  try {
+    payload = await api("/api/schedule");
+  } catch (error) {
+    return; // an enhancement, not a requirement -- leave the strip hidden
+  }
+  state.seasonRounds = payload.rounds;
+  state.seasonYear = payload.year;
+  $("#season-label").textContent = `${payload.year} Season`;
+  $("#season").classList.toggle("is-hidden", payload.rounds.length === 0);
+  renderSeasonStrip();
+}
+
+function renderSeasonStrip() {
+  const track = $("#season-track");
+  if (!track || !state.seasonRounds.length) return;
+  track.innerHTML = "";
+
+  state.seasonRounds.forEach((round) => {
+    const item = el("button", "season__round");
+    if (round.completed) item.classList.add("is-done");
+    if (round.is_next) item.classList.add("is-next");
+
+    const isSelected =
+      state.mode === "replay"
+        ? Boolean(round.race_id) && state.raceId === round.race_id
+        : !round.completed &&
+          state.circuit === round.circuit.id &&
+          (state.upcomingRound ? state.upcomingRound.round === round.round : round.is_next);
+    if (isSelected) item.classList.add("is-selected");
+
+    item.appendChild(el("div", "season__round-num", `R${round.round}`));
+    if (round.circuit.country) {
+      const flag = el("img", "season__round-flag");
+      flag.src = `https://flagcdn.com/w40/${round.circuit.country}.png`;
+      flag.alt = "";
+      flag.addEventListener("error", () => flag.remove());
+      item.appendChild(flag);
+    }
+    item.appendChild(el("div", "season__round-name", round.circuit.locality || round.circuit.name));
+    item.appendChild(
+      el("div", "season__round-status", round.is_next ? "Next" : round.completed ? "Done" : "")
+    );
+
+    item.addEventListener("click", () => {
+      if (round.completed && round.race_id) {
+        setMode("replay");
+        state.raceId = round.race_id;
+        const select = $("#race-select");
+        if (select) select.value = round.race_id;
+      } else {
+        setMode("upcoming");
+        state.circuit = round.circuit.id;
+        state.upcomingRound = { year: state.seasonYear, round: round.round };
+        $$("#circuit-chips .chip").forEach((chip) => chip.classList.remove("is-active"));
+      }
+      loadPredictions();
+    });
+
+    track.appendChild(item);
   });
 }
 
@@ -441,6 +539,7 @@ async function loadPickers() {
     chip.classList.toggle("is-active", circuit.id === state.circuit);
     chip.addEventListener("click", () => {
       state.circuit = circuit.id;
+      state.upcomingRound = null; // a plain circuit pick always means "next race"
       $$("#circuit-chips .chip").forEach((other) => other.classList.remove("is-active"));
       chip.classList.add("is-active");
       loadPredictions();
@@ -462,12 +561,17 @@ async function loadPickers() {
   });
 }
 
+function setMode(mode) {
+  state.mode = mode;
+  if (mode === "upcoming") state.upcomingRound = null; // resolved via the season strip, not here
+  $$(".segmented__opt").forEach((opt) => opt.classList.toggle("is-active", opt.dataset.mode === mode));
+  $("#picker-upcoming").classList.toggle("is-hidden", mode !== "upcoming");
+  $("#picker-replay").classList.toggle("is-hidden", mode !== "replay");
+}
+
 $$(".segmented__opt").forEach((opt) => {
   opt.addEventListener("click", () => {
-    state.mode = opt.dataset.mode;
-    $$(".segmented__opt").forEach((other) => other.classList.toggle("is-active", other === opt));
-    $("#picker-upcoming").classList.toggle("is-hidden", state.mode !== "upcoming");
-    $("#picker-replay").classList.toggle("is-hidden", state.mode !== "replay");
+    setMode(opt.dataset.mode);
     loadPredictions();
   });
 });
@@ -544,43 +648,38 @@ function timeAgo(seconds) {
   return `${Math.round(delta / 86400)} d ago`;
 }
 
-async function loadNews() {
+function renderNewsFilters() {
+  const box = $("#news-filter");
+  box.innerHTML = "";
+  const options = [["All", null], ...state.newsSources.map((name) => [name, name])];
+  options.forEach(([label, value]) => {
+    const chip = el("button", "chip", label);
+    chip.classList.toggle("is-active", state.newsFilter === value);
+    chip.addEventListener("click", () => {
+      state.newsFilter = value;
+      $$("#news-filter .chip").forEach((other) => other.classList.remove("is-active"));
+      chip.classList.add("is-active");
+      renderNewsList();
+    });
+    box.appendChild(chip);
+  });
+}
+
+function renderNewsList() {
   const list = $("#news-list");
   list.innerHTML = "";
-  for (let i = 0; i < 6; i += 1) {
-    const skeleton = el("div", "skeleton");
-    skeleton.style.height = "260px";
-    list.appendChild(skeleton);
-  }
+  const items = state.newsFilter
+    ? state.newsItems.filter((item) => item.source === state.newsFilter)
+    : state.newsItems;
 
-  let payload;
-  try {
-    payload = await api("/api/news");
-  } catch (error) {
-    list.innerHTML = "";
-    const notice = $("#news-notice");
-    notice.className = "notice notice--bad";
-    notice.textContent = `Could not load headlines: ${error.message}`;
+  if (!items.length) {
+    if (state.newsItems.length) {
+      list.appendChild(el("p", "footnote", `No recent headlines from ${state.newsFilter}.`));
+    }
     return;
   }
 
-  state.newsLoaded = true;
-  $("#news-sources").textContent = `Headlines from ${payload.sources.join(", ")}.`;
-
-  const notice = $("#news-notice");
-  if (!payload.items.length) {
-    notice.className = "notice";
-    notice.textContent =
-      "No headlines could be fetched. The feeds are read directly from each outlet, so this usually means no outbound network access.";
-  } else if (payload.errors && payload.errors.length) {
-    notice.className = "notice";
-    notice.textContent = `Some feeds did not respond: ${payload.errors.join(", ")}.`;
-  } else {
-    notice.className = "notice is-hidden";
-  }
-
-  list.innerHTML = "";
-  payload.items.forEach((item) => {
+  items.forEach((item) => {
     const story = el("a", "story");
     story.href = item.link;
     story.target = "_blank";
@@ -609,6 +708,48 @@ async function loadNews() {
   });
 }
 
+async function loadNews() {
+  const list = $("#news-list");
+  list.innerHTML = "";
+  for (let i = 0; i < 6; i += 1) {
+    const skeleton = el("div", "skeleton");
+    skeleton.style.height = "260px";
+    list.appendChild(skeleton);
+  }
+
+  let payload;
+  try {
+    payload = await api("/api/news");
+  } catch (error) {
+    list.innerHTML = "";
+    const notice = $("#news-notice");
+    notice.className = "notice notice--bad";
+    notice.textContent = `Could not load headlines: ${error.message}`;
+    return;
+  }
+
+  state.newsLoaded = true;
+  state.newsItems = payload.items;
+  state.newsSources = payload.sources;
+  $("#news-sources").textContent =
+    `Headlines from ${payload.sources.join(", ")}, refreshed every few days.`;
+
+  const notice = $("#news-notice");
+  if (!payload.items.length) {
+    notice.className = "notice";
+    notice.textContent =
+      "No headlines could be fetched. The feeds are read directly from each outlet, so this usually means no outbound network access.";
+  } else if (payload.errors && payload.errors.length) {
+    notice.className = "notice";
+    notice.textContent = `Some feeds did not respond: ${payload.errors.join(", ")}.`;
+  } else {
+    notice.className = "notice is-hidden";
+  }
+
+  renderNewsFilters();
+  renderNewsList();
+}
+
 /* -------------------------------------------------------------------- boot */
 
 (async function boot() {
@@ -620,5 +761,6 @@ async function loadNews() {
     /* pickers are best-effort; predictions still work with the defaults */
   }
   await loadPredictions();
+  loadSeason(); // independent of the predictions path; doesn't block first paint
   setInterval(loadStatus, STATUS_POLL_MS);
 })();

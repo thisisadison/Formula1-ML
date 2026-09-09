@@ -8,11 +8,12 @@ Two clearly separate code paths, as reflected in the routes:
   /api/chat           agentic       -- Claude choosing tools over the same data
 """
 
+import datetime
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -105,23 +106,76 @@ def races(limit: int = 60):
     return service.race_catalog()[:limit]
 
 
+@app.get("/api/schedule")
+def schedule(year: int = None):
+    """The season calendar with a completed/upcoming marker per round, so
+    the UI can show what's already happened and what's next.
+
+    Falls back to reconstructing a completed-only calendar from local
+    data (no round names/dates for anything still to come) when Jolpica
+    is unreachable -- same offline-first stance as the rest of the app.
+    """
+    year = year or datetime.date.today().year
+    completed_by_round = {
+        race["round"]: race for race in service.race_catalog() if race["year"] == year
+    }
+    next_year, next_round = service.next_round_slot()
+
+    calendar = live.schedule(year)
+    source = "live"
+    if calendar is None:
+        source = "local"
+        calendar = [
+            {"round": race["round"], "circuit_id": race["circuit"]["id"], "name": race["circuit"]["name"], "date": None}
+            for race in completed_by_round.values()
+        ]
+
+    rounds = []
+    for item in sorted(calendar, key=lambda entry: entry["round"]):
+        completed_race = completed_by_round.get(item["round"])
+        rounds.append({
+            "round": item["round"],
+            "name": item.get("name"),
+            "date": item.get("date"),
+            "circuit": reference.circuit(item["circuit_id"]),
+            "completed": completed_race is not None,
+            "race_id": completed_race["race_id"] if completed_race else None,
+            "is_next": year == next_year and item["round"] == next_round,
+        })
+    return {"year": year, "rounds": rounds, "source": source}
+
+
 def _require_model():
     if not model_store.ready:
         raise HTTPException(status_code=503, detail=model_store.error)
 
 
 @app.get("/api/predictions/upcoming")
-def predictions_upcoming(circuit: str):
+def predictions_upcoming(
+    circuit: str,
+    year: int = None,
+    round_num: int = Query(None, alias="round"),
+):
+    """Predicted for the current grid at `circuit`. Defaults to slotting
+    into the very next round; pass year/round explicitly (as the season
+    schedule strip does) to label a prediction for a specific future
+    round further out -- the FEATURES are identical either way, since
+    they're all "as of today" and nothing between now and either race is
+    knowable yet, but the label should say which round was actually
+    asked about rather than always claiming to be the immediate next one.
+    """
     _require_model()
     entrants = service.latest_entry_list()
-    year, round_ = service.next_round_slot()
-    rows = service.predict_upcoming(circuit, entrants, year, round_)
+    default_year, default_round = service.next_round_slot()
+    target_year = year if year is not None else default_year
+    target_round = round_num if round_num is not None else default_round
+    rows = service.predict_upcoming(circuit, entrants, target_year, target_round)
     if not rows:
         raise HTTPException(status_code=404, detail=f"No grid available for '{circuit}'.")
     return {
         "mode": "upcoming",
         "circuit": reference.circuit(circuit),
-        "slots_into": {"year": year, "round": round_},
+        "slots_into": {"year": target_year, "round": target_round},
         "based_on": service.data_cutoff(),
         "drivers": rows,
     }
