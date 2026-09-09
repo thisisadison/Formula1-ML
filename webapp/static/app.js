@@ -277,11 +277,11 @@ function featureBlock(key, value) {
 function driverCard(row, index, showActual) {
   const card = el("article", "card");
   card.style.setProperty("--team", row.team.color);
-  // predicted_top5 IS the top 5 rows by probability, not a raw percentage
-  // cutoff -- a real top-5 finish always names exactly 5 drivers, so this
-  // border is a visible, unambiguous marker of the 5 the model is actually
-  // picking, distinct from "happens to be ranked 5th."
-  if (row.predicted_top5) card.classList.add("card--picked");
+  // predicted_points IS the top 10 rows by probability, not a raw
+  // percentage cutoff -- a real points finish always names exactly 10
+  // drivers, so this border is a visible, unambiguous marker of the 10 the
+  // model is actually picking, distinct from "happens to be ranked 10th."
+  if (row.predicted_points) card.classList.add("card--picked");
 
   const main = el("div", "card__main");
   main.appendChild(el("div", "card__rank", String(index + 1)));
@@ -296,10 +296,10 @@ function driverCard(row, index, showActual) {
   main.appendChild(who);
 
   const prob = el("div", "card__prob");
-  prob.appendChild(el("div", "card__pct", `${Math.round(row.top5_probability * 100)}%`));
+  prob.appendChild(el("div", "card__pct", `${Math.round(row.points_probability * 100)}%`));
   const bar = el("div", "bar");
   const fill = el("div", "bar__fill");
-  fill.style.width = `${Math.max(2, row.top5_probability * 100)}%`;
+  fill.style.width = `${Math.max(2, row.points_probability * 100)}%`;
   bar.appendChild(fill);
   prob.appendChild(bar);
   if (showActual) prob.appendChild(el("div", "card__prob-label", "Predicted"));
@@ -316,8 +316,8 @@ function driverCard(row, index, showActual) {
       "div", "card__actual-value",
       row.actual_position ? `P${row.actual_position}` : "DNF"
     ));
-    if (row.actual_top5 !== null) {
-      const hit = row.predicted_top5 === row.actual_top5;
+    if (row.actual_points !== null) {
+      const hit = row.predicted_points === row.actual_points;
       actual.appendChild(el(
         "div", `card__actual-verdict ${hit ? "is-hit" : "is-miss"}`,
         hit ? "Called right" : "Missed"
@@ -409,19 +409,23 @@ async function loadPredictions() {
     const scoreline = $("#scoreline");
     scoreline.innerHTML = "";
     const hits = payload.drivers.filter(
-      (row) => row.actual_top5 !== null && row.predicted_top5 === row.actual_top5
+      (row) => row.actual_points !== null && row.predicted_points === row.actual_points
     ).length;
-    const scored = payload.drivers.filter((row) => row.actual_top5 !== null).length;
+    const scored = payload.drivers.filter((row) => row.actual_points !== null).length;
     [
       [`${Math.round(payload.accuracy * 100)}%`, "Correct here (in-sample)"],
       [`${hits}/${scored}`, "Drivers called right"],
       [
-        payload.drivers.filter((row) => row.actual_top5).map((r) => r.driver.code).join(" "),
-        "Actual top 5",
+        payload.drivers.filter((row) => row.actual_points).map((r) => r.driver.code).join(" "),
+        "Actual points finishers",
       ],
     ].forEach(([value, label]) => {
       const stat = el("div", "stat");
-      stat.appendChild(el("div", "stat__value", value));
+      const valueNode = el("div", "stat__value", value);
+      // Up to 10 driver codes ("RUS VER NOR LEC PIA ANT ALO HAM TSU SAI")
+      // is a lot more text than the percentages this size was tuned for.
+      if (value.length > 14) valueNode.classList.add("stat__value--wide");
+      stat.appendChild(valueNode);
       stat.appendChild(el("div", "stat__label", label));
       scoreline.appendChild(stat);
     });

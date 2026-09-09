@@ -24,9 +24,12 @@ from webapp.reference import CURRENT_GRID, TEAMS
 
 FEEDS = [
     ("Formula 1", "https://www.formula1.com/content/fom-website/en/latest/all.xml"),
-    ("Autosport", "https://www.autosport.com/rss/f1/news/"),
     ("Motorsport.com", "https://www.motorsport.com/rss/f1/news/"),
     ("BBC Sport", "https://feeds.bbci.co.uk/sport/formula1/rss.xml"),
+    # Autosport removed: their RSS endpoint answers 405 Method Not Allowed
+    # to a plain GET (confirmed against the live feed, not a guess) --
+    # they've either retired it or now require something this client
+    # doesn't send. Re-add once a working URL is confirmed.
 ]
 
 # Headlines don't need to be fresher than this -- a news tab isn't the

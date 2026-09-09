@@ -25,7 +25,7 @@ import time
 import pandas as pd
 import requests
 
-from pipeline import _parse_lap_time_to_ms
+from pipeline import POINTS_POSITIONS, TARGET_COLUMN, _parse_lap_time_to_ms
 
 API = "https://api.jolpi.ca/ergast/f1"
 CIRCUIT_ID = "marina_bay"  # Jolpica-F1's slug for the Singapore GP circuit
@@ -127,7 +127,13 @@ def build_features_for_year(year: int) -> pd.DataFrame:
         "fastest_lap_time_ms": _parse_lap_time_to_ms(
             r.get("FastestLap", {}).get("Time", {}).get("time")
         ),
-        "top5": int(r["position"].isdigit() and 1 <= int(r["position"]) <= 5),
+        # Imported from pipeline.py rather than hardcoded here: build_full_dataset()
+        # concats this frame straight onto the historical one by column name, so a
+        # column named or thresholded differently from pipeline.py's own TARGET_COLUMN
+        # doesn't raise -- it silently produces two half-empty target columns, and
+        # every fresh row gets dropped as "no target" by clean_data(). (That's exactly
+        # what a stale "top5"/<=5 literal here did after the target moved to top 10.)
+        TARGET_COLUMN: int(r["position"].isdigit() and 1 <= int(r["position"]) <= POINTS_POSITIONS),
     } for r in results])
 
     # qualifying position is what the notebook/pipeline call "grid" --

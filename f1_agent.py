@@ -6,7 +6,12 @@ Architecture
 - Reuses pipeline.py's build_singapore_dataset() so the agent looks up
   drivers against the exact same feature table the model was trained on.
 - Two tools: get_driver_stats() reads directly from that table,
-  predict_top5() feeds the same row into the trained model.
+  predict_points_finish() feeds the same row into the trained model.
+  (model.pkl predicts a top-10/points finish, not top 5 -- see
+  pipeline.py's TARGET_COLUMN/POINTS_POSITIONS. This file's tool is
+  named to match; if you retrain pipeline.py against a different
+  target, update the name and prediction label here too, since nothing
+  connects them automatically.)
 - Claude decides which tool(s) to call based on the user's question.
   This script implements the full tool-use loop: ask -> Claude picks a
   tool -> we run it locally -> we send the result back -> Claude answers.
@@ -69,9 +74,10 @@ def get_driver_stats(driver: str, year: int) -> str:
     })
 
 
-def predict_top5(driver: str, year: int) -> str:
+def predict_points_finish(driver: str, year: int) -> str:
     """Run the trained model (whichever of RF / Logistic Regression / SVM
-    pipeline.py selected) to predict whether a driver finishes top 5."""
+    pipeline.py selected) to predict whether a driver finishes in the
+    points (top 10)."""
     row = _lookup(driver, year)
     if row is None:
         return f"No data found for {driver} in {year}."
@@ -84,7 +90,7 @@ def predict_top5(driver: str, year: int) -> str:
     return json.dumps({
         "driver": driver,
         "year": year,
-        "predicted_top5": bool(prediction),
+        "predicted_points_finish": bool(prediction),
     })
 
 
@@ -105,8 +111,8 @@ tools = [
         },
     },
     {
-        "name": "predict_top5",
-        "description": "Predict whether a driver will finish in the top 5 of the Singapore GP, using the trained ML model.",
+        "name": "predict_points_finish",
+        "description": "Predict whether a driver will finish in the points (top 10) of the Singapore GP, using the trained ML model.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -120,7 +126,7 @@ tools = [
 
 TOOL_FUNCTIONS = {
     "get_driver_stats": get_driver_stats,
-    "predict_top5": predict_top5,
+    "predict_points_finish": predict_points_finish,
 }
 
 

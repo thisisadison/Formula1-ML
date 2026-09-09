@@ -2,7 +2,7 @@
 
 # Project Objective
 - The attached contains files documenting my Machine Learning Semester Project. 
-- Our project allows for real-time predictions for whether a Formula 1 driver will finish in the Top 5 of the Singapore Grand Prix using live predictors such as "Average Lap Times", "Average Pit Stop Times", "Fastest Lap Time" and "Starting Grid Positions".
+- Our project allows for real-time predictions for whether a Formula 1 driver will finish in the points (Top 10) of the Singapore Grand Prix using live predictors such as "Average Lap Times", "Average Pit Stop Times", "Fastest Lap Time" and "Starting Grid Positions". (Originally a Top-5 model; retargeted to Top 10/points -- see pipeline.py's POINTS_POSITIONS.)
 - This model is trained on all data that exists for every iteration of the Singapore Grand Prix since it began in 2008. Teams can utilise this to determine what the outcome of a driver's race will be and the factors they need to improve on during the race to achieve better results.
 
 # Web App (webapp/)
@@ -16,14 +16,15 @@
   replay it (what the model would have said beforehand vs. what actually happened, side by side with
   a called-right/missed verdict), or an upcoming one for a live prediction against the current grid
   -- either way every driver shows a photo (from Wikipedia, Commons-licensed) next to a small team
-  badge, and expands to the feature values behind their number. The 5 highest-probability drivers are
-  marked with a red edge -- that's the model's actual top-5 pick, exactly 5 of them, not a raw
-  percentage cutoff (which could mark 3 or 8 drivers "predicted" depending on how confident the model
-  is, and disagree with what's visibly in the top 5 rows). Or skip the strip and pick any circuit
-  freely via the chips below it.
+  badge, and expands to the feature values behind their number. The 10 highest-probability drivers
+  are marked with a red edge -- that's the model's actual points-finish pick, exactly 10 of them
+  (pipeline.py's POINTS_POSITIONS), not a raw percentage cutoff (which could mark 6 or 14 drivers
+  "predicted" depending on how confident the model is, and disagree with what's visibly in the top 10
+  rows). Or skip the strip and pick any circuit freely via the chips below it.
 - Assistant tab (agentic): a Claude agent with read-only tools over the same model and feature table.
   Needs ANTHROPIC_API_KEY; the rest of the site works without it.
-- News tab: RSS from Formula1.com, Autosport, Motorsport.com and BBC Sport, read server-side and
+- News tab: RSS from Formula1.com, Motorsport.com and BBC Sport (Autosport's feed currently answers
+  405 to a GET and has been dropped -- re-add once a working URL turns up), read server-side and
   linked out to, with filter chips by TOPIC (Drivers / Teams / Regulations / Race Weekend / Other) --
   each headline is tagged by keyword match against its title and summary, not sorted by which outlet
   wrote it. Refetched at most every 3.5 days (F1_NEWS_TTL_SECONDS to change it) -- headlines don't

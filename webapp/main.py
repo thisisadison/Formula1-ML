@@ -32,7 +32,7 @@ DATA_DIR = os.environ.get("F1_DATA_DIR", "data")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-app = FastAPI(title="F1 Top-5 Predictor")
+app = FastAPI(title="F1 Points-Finish Predictor")
 
 reference = Reference(pipeline.load_raw_tables(DATA_DIR))
 model_store = ModelStore()
@@ -212,8 +212,8 @@ def predictions_race(race_id: str):
     race = next((item for item in service.race_catalog() if item["race_id"] == race_id), None)
     if not rows or race is None:
         raise HTTPException(status_code=404, detail=f"No race '{race_id}'.")
-    scored = [row for row in rows if row["actual_top5"] is not None]
-    correct = sum(1 for row in scored if row["predicted_top5"] == row["actual_top5"])
+    scored = [row for row in rows if row["actual_points"] is not None]
+    correct = sum(1 for row in scored if row["predicted_points"] == row["actual_points"])
     return {
         "mode": "replay",
         "race": race,

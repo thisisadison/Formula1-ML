@@ -65,8 +65,10 @@ class ModelStore:
             return "unavailable"
         return type(self.model.named_steps["model"]).__name__
 
-    def predict_top5_proba(self, features: pd.DataFrame) -> pd.Series:
-        """P(top-5 finish) for each row, indexed like the input.
+    def predict_points_proba(self, features: pd.DataFrame) -> pd.Series:
+        """P(points finish, i.e. top 10) for each row, indexed like the
+        input -- see pipeline.py's TARGET_COLUMN/POINTS_POSITIONS for what
+        the loaded model was actually trained to predict.
 
         The exported object is a full sklearn Pipeline whose
         ColumnTransformer selects by column name, so the input has to be
@@ -76,5 +78,5 @@ class ModelStore:
             raise RuntimeError(self.error)
         ordered = features[FEATURE_COLUMNS]
         proba = self.model.predict_proba(ordered)
-        top5_column = list(self.model.classes_).index(1)
-        return pd.Series(proba[:, top5_column], index=features.index)
+        positive_column = list(self.model.classes_).index(1)
+        return pd.Series(proba[:, positive_column], index=features.index)

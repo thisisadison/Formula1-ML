@@ -22,8 +22,8 @@ MAX_STEPS = 6
 
 SYSTEM_PROMPT = """You are the race analyst built into an F1 prediction site.
 
-The site's model predicts whether a driver finishes in the top 5, from
-pre-qualifying information only: championship standing going into the
+The site's model predicts whether a driver finishes in the points (top 10),
+from pre-qualifying information only: championship standing going into the
 race, constructor standing, seasons of experience, rookie status, the
 driver's average finish at that circuit, and recent form over the last
 three races for both driver and team. It deliberately does not use grid
@@ -42,8 +42,8 @@ TOOLS = [
         "name": "predict_race",
         "description": (
             "Run the trained model over the current grid for a race at a given circuit "
-            "and return each driver's probability of finishing in the top 5, plus the "
-            "feature values behind it. Use this for any question about who will do well "
+            "and return each driver's probability of finishing in the points (top 10), plus "
+            "the feature values behind it. Use this for any question about who will do well "
             "in an upcoming or hypothetical race."
         ),
         "input_schema": {
@@ -147,7 +147,7 @@ class RaceAnalyst:
                 "driver": row["driver"]["name"],
                 "code": row["driver"]["code"],
                 "team": row["team"]["name"],
-                "top5_probability": round(row["top5_probability"], 3),
+                "points_probability": round(row["points_probability"], 3),
                 "features": {k: (None if v is None else round(v, 2)) for k, v in row["features"].items()},
             } for row in rows[:max(1, min(int(top_n), 20))]],
         }
@@ -188,10 +188,10 @@ class RaceAnalyst:
                 "driver": row["driver"]["name"],
                 "code": row["driver"]["code"],
                 "team": row["team"]["name"],
-                "top5_probability": round(row["top5_probability"], 3),
-                "predicted_top5": row["predicted_top5"],
+                "points_probability": round(row["points_probability"], 3),
+                "predicted_points": row["predicted_points"],
                 "actual_position": row["actual_position"],
-                "actual_top5": row["actual_top5"],
+                "actual_points": row["actual_points"],
             } for row in rows],
         }
 

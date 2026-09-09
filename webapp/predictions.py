@@ -156,8 +156,8 @@ class PredictionService:
     # -----------------------------------------------------------------
     def _to_rows(self, features: pd.DataFrame) -> list:
         features = features.copy()
-        features["top5_probability"] = self.model_store.predict_top5_proba(features)
-        features = features.sort_values("top5_probability", ascending=False)
+        features["points_probability"] = self.model_store.predict_points_proba(features)
+        features = features.sort_values("points_probability", ascending=False)
 
         rows = []
         for position, (_, row) in enumerate(features.iterrows()):
@@ -167,18 +167,21 @@ class PredictionService:
             rows.append({
                 "driver": driver,
                 "team": team,
-                "top5_probability": float(row["top5_probability"]),
-                # Rank-based, NOT a >=50% cutoff: a real top-5 finish always
-                # names exactly 5 drivers, so the prediction should too, and
-                # this is what "5th place in the list" already looks like on
-                # screen -- a probability threshold can silently disagree
-                # with that (a borderline 5th-place driver at 42% reads as
-                # "not predicted top 5" under a cutoff despite being shown
-                # right there in the top 5 rows), which is exactly what
-                # made a real miss display as "called right."
-                "predicted_top5": position < 5,
+                "points_probability": float(row["points_probability"]),
+                # Rank-based, NOT a >=50% cutoff: a real points finish always
+                # names exactly pipeline.POINTS_POSITIONS (10) drivers, so
+                # the prediction should too, and this is what "row 10 in the
+                # list" already looks like on screen -- a probability
+                # threshold can silently disagree with that (a borderline
+                # 10th-place driver at 42% reads as "not predicted" under a
+                # cutoff despite being shown right there in the top 10
+                # rows), which is exactly what once made a real miss display
+                # as "called right."
+                "predicted_points": position < pipeline.POINTS_POSITIONS,
                 "actual_position": None if pd.isna(actual) else int(actual),
-                "actual_top5": None if pd.isna(actual) else bool(1 <= actual <= 5),
+                "actual_points": (
+                    None if pd.isna(actual) else bool(1 <= actual <= pipeline.POINTS_POSITIONS)
+                ),
                 "features": {
                     key: (None if pd.isna(row[key]) else float(row[key]))
                     for key in FEATURE_COLUMNS if key != "circuit_id"
