@@ -18,9 +18,17 @@
   Needs ANTHROPIC_API_KEY; the rest of the site works without it.
 - News tab: RSS from Formula1.com, Autosport, Motorsport.com and BBC Sport, read server-side and
   linked out to.
-- Staying current: POST /api/refresh?year=YYYY pulls that season from the Jolpica-F1 API into
-  data/multi_circuit_fresh.csv and rebuilds the feature table. Everything degrades to the bundled
-  CSVs when offline.
+- Staying current, automatically: while the server is running, a background thread checks the
+  Jolpica-F1 API every 3 hours (F1_CHECK_INTERVAL_SECONDS to change it) for a newly-completed race.
+  If one is found, it fetches the results AND retrains the model (runs pipeline.py as a subprocess,
+  ~20-30 min), then hot-swaps the new model.pkl into the running server -- no restart needed. Poll
+  /api/status's "auto_update" field (state: checking / retraining / idle) for progress, or the nav bar
+  dot shows "Retraining on latest race..." live. For this to actually run after every race, the
+  server process needs to be left running continuously (e.g. `uvicorn webapp.main:app`, without
+  --reload, kept up on your machine) -- it only checks while it's up.
+  POST /api/auto-update/check-now?force=true triggers a check immediately instead of waiting for the
+  next scheduled one (useful for testing). POST /api/refresh?year=YYYY does the data-fetch half only,
+  without retraining, if that's ever what you want on its own.
 
 # Project Overview
 - Project demonstrates cleaning, filtering and visualising of large datasets using Python libraries such as Pandas and self-wrote helper functions.

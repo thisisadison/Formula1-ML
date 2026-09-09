@@ -40,6 +40,25 @@ class ModelStore:
     def ready(self) -> bool:
         return self.model is not None
 
+    def reload(self) -> bool:
+        """Re-read self.path, replacing the in-memory model in place.
+
+        Called after a background retrain writes a new model.pkl. The
+        alternative is restarting the whole server process, which is
+        exactly what an always-on deployment is trying to avoid -- every
+        other component (PredictionService, RaceAnalyst) holds a
+        reference to THIS ModelStore instance, so swapping self.model
+        here is visible to all of them immediately, in-flight requests
+        included, with no coordination needed elsewhere.
+        """
+        try:
+            self.model = joblib.load(self.path)
+            self.error = None
+            return True
+        except Exception as exc:
+            self.error = f"Reload of {self.path} failed ({type(exc).__name__}: {exc})"
+            return False
+
     @property
     def name(self) -> str:
         if not self.ready:

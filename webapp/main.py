@@ -9,6 +9,7 @@ Two clearly separate code paths, as reflected in the routes:
 """
 
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException
@@ -24,9 +25,11 @@ from webapp.model_store import ModelStore
 from webapp.news import NewsService
 from webapp.predictions import PredictionService
 from webapp.reference import CIRCUITS, Reference
+from webapp.scheduler import AutoUpdateScheduler
 
 DATA_DIR = os.environ.get("F1_DATA_DIR", "data")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(title="F1 Top-5 Predictor")
 
@@ -51,6 +54,9 @@ def _rebuild_service() -> None:
 
 
 images = ImageResolver(os.path.join(DATA_DIR, "cache", "images.json"))
+
+auto_update = AutoUpdateScheduler(live, DATA_DIR, model_store, _rebuild_service, PROJECT_ROOT)
+auto_update.start()
 
 
 class ChatRequest(BaseModel):
@@ -78,6 +84,7 @@ def status():
             "races": len(service.race_catalog()),
         },
         "live": live.status(),
+        "auto_update": auto_update.status(),
         "assistant": {
             "available": analyst.available,
             "reason": analyst.unavailable_reason,
@@ -147,6 +154,23 @@ def refresh(year: int):
     return {**result, "cutoff": service.data_cutoff()}
 
 
+@app.post("/api/auto-update/check-now")
+def auto_update_check_now(force: bool = False):
+    """Trigger the same check-and-retrain cycle the background scheduler
+    runs every F1_CHECK_INTERVAL_SECONDS, without waiting for it.
+
+    Retraining takes ~20-30 minutes, so this returns immediately and the
+    work happens on its own thread -- poll /api/status's auto_update
+    field (state: "checking" | "retraining" | "idle") for progress.
+    force=true retrains even if no new race was found, mainly useful for
+    verifying the pipeline end-to-end without waiting for a real race.
+    """
+    if auto_update.state != "idle":
+        return {"started": False, "reason": "busy", "state": auto_update.state}
+    threading.Thread(target=auto_update.check_now, kwargs={"force": force}, daemon=True).start()
+    return {"started": True}
+
+
 @app.post("/api/images")
 def resolve_images(request: ImageRequest):
     """Batch Wikipedia thumbnail lookup, called after the page has
@@ -168,6 +192,11 @@ def chat(request: ChatRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Ask something first.")
     return analyst.ask(question)
+
+
+@app.on_event("shutdown")
+def _stop_scheduler():
+    auto_update.stop()
 
 
 @app.get("/")

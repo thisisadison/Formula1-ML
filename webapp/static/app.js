@@ -21,7 +21,10 @@ const state = {
   status: null,
   chatBusy: false,
   newsLoaded: false,
+  lastRetrainedAt: null,
 };
+
+const STATUS_POLL_MS = 60_000;
 
 const FEATURE_LABELS = {
   driver_standing_before: "Championship pos.",
@@ -162,36 +165,61 @@ $$("[data-tab]").forEach((btn) => {
 
 /* ------------------------------------------------------------------ status */
 
+// Re-polled periodically (see boot()) so a background retrain's progress
+// -- and its eventual completion -- shows up without a page reload.
+// Every branch below sets BOTH the "on" and the "off" state explicitly;
+// a status that only ever adds a notice and never clears one would leave
+// stale banners up once a retrain fixes what they were warning about.
 async function loadStatus() {
   try {
     state.status = await api("/api/status");
   } catch (error) {
     return;
   }
-  const { model, data, live } = state.status;
+  const { model, data, live, auto_update: autoUpdate } = state.status;
   const box = $("#nav-status");
   box.innerHTML = "";
 
   const dot = el("span", "dot");
-  if (!model.ready) dot.classList.add("dot--bad");
-  else if (live.online === false) dot.classList.add("dot--warn");
-  else dot.classList.add("dot--ok");
+  let label = data.cutoff.label ? `Data to ${data.cutoff.label}` : "No data";
+  if (autoUpdate.state === "retraining") {
+    dot.classList.add("dot--warn");
+    label = "Retraining on latest race…";
+  } else if (!model.ready) {
+    dot.classList.add("dot--bad");
+  } else if (live.online === false) {
+    dot.classList.add("dot--warn");
+  } else {
+    dot.classList.add("dot--ok");
+  }
   box.appendChild(dot);
-  box.appendChild(el("span", null, data.cutoff.label ? `Data to ${data.cutoff.label}` : "No data"));
+  box.appendChild(el("span", null, label));
 
+  const modelNotice = $("#predictions-notice");
   if (!model.ready) {
-    const notice = $("#predictions-notice");
-    notice.className = "notice notice--bad";
-    notice.innerHTML = "";
-    notice.appendChild(el("strong", null, "The model needs rebuilding. "));
-    notice.appendChild(document.createTextNode(model.error || ""));
+    modelNotice.className = "notice notice--bad";
+    modelNotice.innerHTML = "";
+    modelNotice.appendChild(el("strong", null, "The model needs rebuilding. "));
+    modelNotice.appendChild(document.createTextNode(model.error || ""));
+  } else {
+    modelNotice.className = "notice is-hidden";
   }
 
-  const assistant = state.status.assistant;
-  if (!assistant.available) {
-    const notice = $("#assistant-notice");
-    notice.className = "notice";
-    notice.textContent = assistant.reason || "The assistant is unavailable.";
+  const assistantNotice = $("#assistant-notice");
+  if (!state.status.assistant.available) {
+    assistantNotice.className = "notice";
+    assistantNotice.textContent = state.status.assistant.reason || "The assistant is unavailable.";
+  } else {
+    assistantNotice.className = "notice is-hidden";
+  }
+
+  // A completed retrain in the background changes the numbers under
+  // whatever's already on screen -- worth an automatic refresh rather
+  // than leaving pre-retrain predictions up until the next click.
+  if (autoUpdate.last_retrained && autoUpdate.last_retrained !== state.lastRetrainedAt) {
+    const isFirstStatus = state.lastRetrainedAt === null;
+    state.lastRetrainedAt = autoUpdate.last_retrained;
+    if (!isFirstStatus) loadPredictions();
   }
 }
 
@@ -592,4 +620,5 @@ async function loadNews() {
     /* pickers are best-effort; predictions still work with the defaults */
   }
   await loadPredictions();
+  setInterval(loadStatus, STATUS_POLL_MS);
 })();
