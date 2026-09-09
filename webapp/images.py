@@ -13,6 +13,7 @@ returns a licensed thumbnail URL directly.
 
 import json
 import os
+import re
 import threading
 
 import requests
@@ -28,8 +29,11 @@ USER_AGENT = "Apex-F1/1.0 (https://github.com/thisisadison/Formula1-ML) python-r
 
 # Bumped when a bug could have written bad entries; caches from an older
 # version are dropped rather than trusted. v1 cached 403s and rate limits
-# as permanent "this page has no photo" misses.
-CACHE_VERSION = 2
+# as permanent "this page has no photo" misses. v2 cached thumb.wikimedia.org
+# URLs as successful hits -- a valid API response, but a dead host that
+# doesn't actually serve the file, so every image already resolved under
+# v2 needs re-resolving through the upload.wikimedia.org rewrite below.
+CACHE_VERSION = 3
 
 
 class ImageResolver:
@@ -89,11 +93,22 @@ class ImageResolver:
         thumbnail = payload.get("thumbnail") or {}
         source = thumbnail.get("source")
         if source:
+            # The summary API can hand back a thumb.wikimedia.org URL --
+            # same exact Commons path structure, but that host doesn't
+            # actually serve the file (confirmed: loading one directly in a
+            # browser fails outright, not a CORS/embedding issue, a genuine
+            # dead load). upload.wikimedia.org is Wikimedia's real,
+            # long-standing, hotlink-friendly media CDN and serves the
+            # identical path -- forcing it here fixes the request rather
+            # than trusting whichever host the API happened to return.
+            source = re.sub(r"^https?://thumb\.wikimedia\.org/", "https://upload.wikimedia.org/", source)
             # Ask for a consistent width rather than whatever the summary
-            # happens to return, so cards don't jump as photos land.
+            # happens to return, so cards don't jump as photos land. Also
+            # drops the API's own ?utm_source=... tracking params -- dead
+            # weight on a direct CDN fetch.
             result["image"] = source.replace(
                 f"/{thumbnail.get('width', THUMB_WIDTH)}px-", f"/{THUMB_WIDTH}px-"
-            )
+            ).split("?", 1)[0]
         result["attribution"] = payload.get("content_urls", {}).get("desktop", {}).get("page")
 
         # A page that genuinely has no photo IS worth caching -- that answer
