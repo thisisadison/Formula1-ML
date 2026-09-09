@@ -141,7 +141,8 @@ class RaceAnalyst:
             return {"error": f"No grid available to predict a race at '{circuit}'."}
         return {
             "circuit": self.service.reference.circuit(circuit),
-            "slots_into": dict(zip(("year", "round"), self.service.next_round_slot())),
+            "prediction_only": "This race has not been run; there are no actual results.",
+            "form_as_of": self.service.data_cutoff()["label"],
             "drivers": [{
                 "driver": row["driver"]["name"],
                 "code": row["driver"]["code"],

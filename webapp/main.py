@@ -156,26 +156,36 @@ def predictions_upcoming(
     year: int = None,
     round_num: int = Query(None, alias="round"),
 ):
-    """Predicted for the current grid at `circuit`. Defaults to slotting
-    into the very next round; pass year/round explicitly (as the season
-    schedule strip does) to label a prediction for a specific future
-    round further out -- the FEATURES are identical either way, since
-    they're all "as of today" and nothing between now and either race is
-    knowable yet, but the label should say which round was actually
-    asked about rather than always claiming to be the immediate next one.
+    """Predicted for the current grid at `circuit`, optionally labelled
+    for a specific future round (year/round, as the season strip sends).
+
+    The features are ALWAYS computed at the slot immediately after the
+    last completed race, whatever round is being asked about. That slot
+    is the only one where the championship-standing features mean
+    anything: build_season_form ranks drivers on points accumulated
+    earlier in the SAME season, so slotting a placeholder into a season
+    with no completed races yet gives every driver zero points and ties
+    the entire grid at P1 -- silently destroying the model's strongest
+    feature and leaving it to guess from circuit history alone.
+
+    Nothing between now and a later round is knowable anyway, so today's
+    standings are the honest input for any future race; only the label
+    changes.
     """
     _require_model()
     entrants = service.latest_entry_list()
-    default_year, default_round = service.next_round_slot()
-    target_year = year if year is not None else default_year
-    target_round = round_num if round_num is not None else default_round
-    rows = service.predict_upcoming(circuit, entrants, target_year, target_round)
+    slot_year, slot_round = service.next_round_slot()
+    rows = service.predict_upcoming(circuit, entrants, slot_year, slot_round)
     if not rows:
         raise HTTPException(status_code=404, detail=f"No grid available for '{circuit}'.")
     return {
         "mode": "upcoming",
         "circuit": reference.circuit(circuit),
-        "slots_into": {"year": target_year, "round": target_round},
+        "predicted_for": {
+            "year": year if year is not None else slot_year,
+            "round": round_num if round_num is not None else slot_round,
+        },
+        "form_as_of": service.data_cutoff(),
         "based_on": service.data_cutoff(),
         "drivers": rows,
     }

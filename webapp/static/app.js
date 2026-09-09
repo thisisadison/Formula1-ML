@@ -296,17 +296,31 @@ function driverCard(row, index, showActual) {
   fill.style.width = `${Math.max(2, row.top5_probability * 100)}%`;
   bar.appendChild(fill);
   prob.appendChild(bar);
-
-  if (showActual && row.actual_top5 !== null) {
-    const hit = row.predicted_top5 === row.actual_top5;
-    const verdict = el(
-      "div",
-      `verdict ${hit ? "verdict--hit" : "verdict--miss"}`,
-      row.actual_position ? `P${row.actual_position}` : "DNF"
-    );
-    prob.appendChild(verdict);
-  }
+  if (showActual) prob.appendChild(el("div", "card__prob-label", "Predicted"));
   main.appendChild(prob);
+
+  // On an elapsed race, what actually happened sits beside the prediction
+  // rather than being a small badge under it -- the whole point of replay
+  // is the comparison, so both halves get equal weight and a label saying
+  // which is which.
+  if (showActual) {
+    main.classList.add("card__main--compare");
+    const actual = el("div", "card__actual");
+    actual.appendChild(el(
+      "div", "card__actual-value",
+      row.actual_position ? `P${row.actual_position}` : "DNF"
+    ));
+    if (row.actual_top5 !== null) {
+      const hit = row.predicted_top5 === row.actual_top5;
+      actual.appendChild(el(
+        "div", `card__actual-verdict ${hit ? "is-hit" : "is-miss"}`,
+        hit ? "Called right" : "Missed"
+      ));
+    }
+    actual.appendChild(el("div", "card__prob-label", "Actual"));
+    main.appendChild(actual);
+  }
+
   card.appendChild(main);
 
   const detail = el("div", "card__detail");
@@ -371,15 +385,15 @@ async function loadPredictions() {
 
   renderHeroArt(circuit.id);
   $("#hero-eyebrow").textContent = isReplay
-    ? `${payload.race.year} · Round ${payload.race.round}`
-    : "Next race · predicted";
+    ? `${payload.race.year} · Round ${payload.race.round} · result vs prediction`
+    : `${payload.predicted_for.year} · Round ${payload.predicted_for.round} · prediction only`;
   $("#hero-title").textContent = circuit.name;
 
   const meta = $("#hero-meta");
   meta.innerHTML = "";
   meta.appendChild(flagPill(circuit));
-  if (!isReplay && payload.based_on.label) {
-    meta.appendChild(el("span", "pill", `Form as of ${payload.based_on.label}`));
+  if (!isReplay && payload.form_as_of.label) {
+    meta.appendChild(el("span", "pill", `Form as of ${payload.form_as_of.label}`));
   }
   if (state.status && state.status.model.ready) {
     meta.appendChild(el("span", "pill", state.status.model.name));
@@ -413,8 +427,8 @@ async function loadPredictions() {
   payload.drivers.forEach((row, index) => list.appendChild(driverCard(row, index, isReplay)));
 
   $("#predictions-footnote").textContent = isReplay
-    ? "Features are strictly pre-race: championship and constructor standing going into the race, seasons of experience, average finish at this circuit, and three-race form for driver and team. Nothing from qualifying or from during the race is used. Read the score as a sanity check rather than a measure of accuracy, though — pipeline.py refits the exported model on every season before saving it, so a race shown here was part of that final fit. The honest number is the held-out score printed when you train."
-    : `Predicted for the current grid, slotting in as round ${payload.slots_into.round} of ${payload.slots_into.year}. Uses pre-qualifying information only — no grid position, no lap or pit-stop times — so it holds as soon as the previous race ends. Tap a driver to see the inputs behind their number.`;
+    ? "Left column is what the model said beforehand; right column is the real classified result. Features are strictly pre-race: championship and constructor standing going into the race, seasons of experience, average finish at this circuit, and three-race form for driver and team — nothing from qualifying or from during the race. Read the score as a sanity check rather than a measure of accuracy, though: pipeline.py refits the exported model on every season before saving it, so a race shown here was part of that final fit. The honest number is the held-out score printed when you train."
+    : `Prediction only — this race hasn't been run, so there are no actual results to compare against. Standings and form are as of ${payload.form_as_of.label || "the latest race in the data"}, which is the most recent information the model has; nothing between then and this race is knowable yet. Uses pre-qualifying information only — no grid position, no lap or pit-stop times. Tap a driver to see the inputs behind their number.`;
 
   hydratePhotos();
   renderSeasonStrip();
@@ -462,9 +476,12 @@ async function loadSeason() {
   }
   state.seasonRounds = payload.rounds;
   state.seasonYear = payload.year;
-  $("#season-label").textContent = `${payload.year} Season`;
+  const done = payload.rounds.filter((round) => round.completed).length;
+  $("#season-label").textContent =
+    `${payload.year} Season — ${done} of ${payload.rounds.length} races run`;
   $("#season").classList.toggle("is-hidden", payload.rounds.length === 0);
   renderSeasonStrip();
+  updatePickerVisibility();
 }
 
 function renderSeasonStrip() {
@@ -547,14 +564,21 @@ async function loadPickers() {
     chips.appendChild(chip);
   });
 
+  // The API returns newest-first; the dropdown reads chronologically so it
+  // matches the season strip's left-to-right running order. Most recent is
+  // still what's selected by default -- it's just last in the list now.
   const select = $("#race-select");
   select.innerHTML = "";
-  races.forEach((race) => {
-    const option = el("option", null, race.label);
+  const chronological = [...races].sort(
+    (a, b) => a.year - b.year || a.round - b.round
+  );
+  chronological.forEach((race) => {
+    const option = el("option", null, `${race.label} · R${race.round}`);
     option.value = race.race_id;
     select.appendChild(option);
   });
-  state.raceId = races.length ? races[0].race_id : null;
+  state.raceId = chronological.length ? chronological[chronological.length - 1].race_id : null;
+  if (state.raceId) select.value = state.raceId;
   select.addEventListener("change", () => {
     state.raceId = select.value;
     loadPredictions();
@@ -565,8 +589,19 @@ function setMode(mode) {
   state.mode = mode;
   if (mode === "upcoming") state.upcomingRound = null; // resolved via the season strip, not here
   $$(".segmented__opt").forEach((opt) => opt.classList.toggle("is-active", opt.dataset.mode === mode));
-  $("#picker-upcoming").classList.toggle("is-hidden", mode !== "upcoming");
-  $("#picker-replay").classList.toggle("is-hidden", mode !== "replay");
+  updatePickerVisibility();
+}
+
+// The season strip already lists every circuit on the calendar, in order,
+// so showing the free-form circuit chips underneath it as well is just the
+// same choice offered twice. The chips stay as the fallback for when no
+// schedule could be loaded (offline, or a season with no calendar yet).
+function updatePickerVisibility() {
+  const hasSeasonStrip = state.seasonRounds.length > 0;
+  $("#picker-upcoming").classList.toggle(
+    "is-hidden", state.mode !== "upcoming" || hasSeasonStrip
+  );
+  $("#picker-replay").classList.toggle("is-hidden", state.mode !== "replay");
 }
 
 $$(".segmented__opt").forEach((opt) => {
