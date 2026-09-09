@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Formula1-ML — Technical Architecture</title>
+<style>
+  @page { size: A4; margin: 20mm 16mm 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 9.6pt;
+    line-height: 1.42;
+    color: #1a1a1e;
+    margin: 0;
+  }
+  code, pre, .mono { font-family: "SF Mono", "Menlo", "Consolas", monospace; }
+
+  /* ---------------- cover ---------------- */
+  .cover {
+    height: 257mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    page-break-after: always;
+  }
+  .cover .kicker {
+    color: #e10600;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-size: 11pt;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .cover h1 { font-size: 34pt; margin: 0 0 10px; letter-spacing: -0.02em; line-height: 1.08; }
+  .cover .sub { font-size: 13pt; color: #555; max-width: 420px; line-height: 1.5; }
+  .cover .meta { margin-top: 60px; font-size: 9pt; color: #888; }
+  .cover .stackline { margin-top: 40px; font-size: 9.5pt; color: #333; }
+  .cover .stackline b { color: #111; }
+
+  /* ---------------- TOC ---------------- */
+  .toc { page-break-after: always; }
+  .toc h2 { font-size: 16pt; margin-bottom: 18px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: sec; }
+  .toc li { counter-increment: sec; padding: 5px 0; font-size: 10pt; border-bottom: 1px dotted #ddd; display: flex; justify-content: space-between; }
+  .toc li::before { content: counter(sec) ".  "; color: #e10600; font-weight: 700; width: 22px; display: inline-block; }
+
+  /* ---------------- section structure ---------------- */
+  /* Sections flow continuously -- only the atomic pieces below (pre/table/
+     callout/flow) are individually protected from splitting badly. A
+     page-break-inside:avoid on every whole section would waste most of
+     each page as empty space, since most sections run taller than one
+     page's remaining room. */
+  section + section { margin-top: 4px; }
+  h2 {
+    font-size: 13pt;
+    color: #111;
+    border-bottom: 2.5px solid #e10600;
+    padding-bottom: 4px;
+    margin: 16px 0 8px;
+    letter-spacing: -0.01em;
+    page-break-after: avoid;
+  }
+  h2 .num { color: #e10600; margin-right: 6px; }
+  h3 { font-size: 10.5pt; margin: 14px 0 5px; color: #1a1a1e; page-break-after: avoid; }
+  p { margin: 5px 0 8px; }
+  ul, ol { margin: 4px 0 10px; padding-left: 18px; }
+  li { margin: 2px 0; }
+  .lead { color: #555; font-size: 9.4pt; margin-bottom: 10px; }
+
+  /* ---------------- code blocks ---------------- */
+  pre {
+    background: #0d1117;
+    color: #e6edf3;
+    padding: 9px 11px;
+    border-radius: 5px;
+    font-size: 8.1pt;
+    line-height: 1.45;
+    overflow-x: auto;
+    margin: 6px 0 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    page-break-inside: avoid;
+  }
+  pre .c { color: #8b949e; } /* comment */
+  pre .k { color: #ff7b72; } /* keyword */
+  pre .s { color: #a5d6ff; } /* string */
+  pre .f { color: #d2a8ff; } /* function/def name */
+  pre .n { color: #79c0ff; } /* number/const */
+  code.inline {
+    background: #eef0f3;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 8.6pt;
+    color: #b0180f;
+  }
+  .filepath { color: #6e7681; font-size: 7.6pt; margin: 0 0 3px; font-family: monospace; }
+
+  /* ---------------- tables ---------------- */
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 8.8pt; page-break-inside: avoid; }
+  th { background: #f4f2ef; text-align: left; padding: 5px 8px; border-bottom: 2px solid #1a1a1e; font-size: 8.2pt; text-transform: uppercase; letter-spacing: 0.03em; color: #444; }
+  td { padding: 5px 8px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
+  tr:last-child td { border-bottom: 1px solid #ccc; }
+  /* A long reference table is allowed to span pages -- keeping it atomic
+     pushes the whole thing to the next page and leaves half a page blank.
+     Rows stay atomic so no single row is split across the break. */
+  table.flowing { page-break-inside: auto; }
+  table.flowing tr { page-break-inside: avoid; }
+
+  /* ---------------- diagram / flow boxes ---------------- */
+  .flow { margin: 10px 0 16px; font-size: 8.6pt; page-break-inside: avoid; }
+  .flow-row { display: flex; align-items: stretch; gap: 6px; margin-bottom: 6px; }
+  .flow-box {
+    background: #f7f6f4; border: 1px solid #d8d5d0; border-radius: 5px;
+    padding: 7px 10px; flex: 1; font-family: monospace; font-size: 8pt;
+  }
+  .flow-box.hot { border-color: #e10600; background: #fff3f2; }
+  .flow-arrow { align-self: center; color: #999; font-size: 12pt; padding: 0 2px; }
+  .step-list { counter-reset: step; list-style: none; padding: 0; margin: 8px 0 14px; page-break-inside: avoid; }
+  .step-list li {
+    counter-increment: step;
+    position: relative;
+    padding: 4px 0 4px 26px;
+    border-left: 2px solid #e5e2dd;
+    margin-left: 9px;
+    font-size: 8.9pt;
+  }
+  .step-list li::before {
+    content: counter(step);
+    position: absolute; left: -12px; top: 3px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #1a1a1e; color: #fff;
+    font-size: 7.5pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-family: sans-serif;
+  }
+  .step-list li:last-child { border-left-color: transparent; }
+
+  .callout {
+    background: #fff8e6; border-left: 3px solid #d9a300; padding: 7px 10px;
+    font-size: 8.6pt; margin: 8px 0 12px; border-radius: 0 4px 4px 0;
+    page-break-inside: avoid;
+  }
+  .callout.bug { background: #fdeeee; border-left-color: #e10600; }
+  .callout b { display: block; margin-bottom: 2px; font-size: 8.2pt; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .grid2 { display: flex; gap: 12px; margin: 8px 0 14px; }
+  .grid2 > div { flex: 1; }
+
+  footer.pagefoot { position: running(footer); }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<div class="cover">
+  <div class="kicker">Technical Reference</div>
+  <h1>Formula1-ML</h1>
+  <div class="sub">Architecture of the prediction pipeline, the auto-updating web app, and how the two stay in sync.</div>
+  <div class="stackline">
+    <b>Pipeline:</b> pandas, scikit-learn &nbsp;·&nbsp;
+    <b>Backend:</b> FastAPI, joblib &nbsp;·&nbsp;
+    <b>Data:</b> Jolpica-F1 API &nbsp;·&nbsp;
+    <b>Agent:</b> Claude API (tool use) &nbsp;·&nbsp;
+    <b>Frontend:</b> vanilla JS
+  </div>
+  <div class="meta">Generated as a learning reference — code excerpts are taken directly from the repository.</div>
+</div>
+
+<!-- ============================== TOC ============================== -->
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span>System overview</span></li>
+    <li><span>Data sources &amp; how they combine</span></li>
+    <li><span>Feature engineering — leakage-safe by construction</span></li>
+    <li><span>Model selection &amp; training</span></li>
+    <li><span>The "hypothetical race" trick — predicting the unrun</span></li>
+    <li><span>Web app module map</span></li>
+    <li><span>Anatomy of one request</span></li>
+    <li><span>The auto-update pipeline — the coordination core</span></li>
+    <li><span>Crash-safety: the fingerprint sidecar</span></li>
+    <li><span>Frontend structure</span></li>
+    <li><span>Analytics — one EDA implementation, two surfaces</span></li>
+    <li><span>Recurring design patterns</span></li>
+    <li><span>File-by-file reference</span></li>
+  </ol>
+</div>
+
+<!-- ============================== 1. OVERVIEW ============================== -->
+<section>
+<h2><span class="num">1.</span>System overview</h2>
+<p class="lead">Two halves that share one contract: <code class="inline">pipeline.py</code>'s <code class="inline">FEATURE_COLUMNS</code> / <code class="inline">TARGET_COLUMN</code>. The web app never reimplements feature logic — it imports and calls the same builder functions the training run used.</p>
+
+<div class="flow">
+  <div class="flow-row">
+    <div class="flow-box">data/*.csv<br>(historical, 1950–2022)</div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-box">data/multi_circuit_fresh.csv<br>(Jolpica-F1, 2023–now)</div>
+  </div>
+  <div class="flow-row"><div class="flow-box hot" style="flex:none;width:100%">pipeline.py — load_raw_tables → build_combined_raw → 4× feature builders → clean_data → balance_classes</div></div>
+  <div class="flow-row"><div class="flow-box hot" style="flex:none;width:100%">train_and_select — GridSearchCV over 4 candidate models, chronological split, refit on everything → model.pkl</div></div>
+  <div class="flow-row">
+    <div class="flow-box">webapp/predictions.py<br>reuses the SAME builders</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">webapp/model_store.py<br>loads model.pkl, hot-reloadable</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">FastAPI JSON<br>→ vanilla-JS frontend</div>
+  </div>
+</div>
+
+<p>Two independent request paths inside the web app, kept deliberately separate:</p>
+<table>
+<tr><th>Path</th><th>Entry point</th><th>Involves an LLM?</th></tr>
+<tr><td>Predictions dashboard</td><td><code class="inline">GET /api/predictions/*</code></td><td>No — pure feature builders → sklearn <code class="inline">.predict_proba()</code></td></tr>
+<tr><td>Race analyst</td><td><code class="inline">POST /api/chat</code></td><td>Yes — Claude picks tools, tools call the same PredictionService</td></tr>
+</table>
+</section>
+
+<!-- ============================== 2. DATA SOURCES ============================== -->
+<section>
+<h2><span class="num">2.</span>Data sources &amp; how they combine</h2>
+
+<table>
+<tr><th>Source</th><th>Covers</th><th>Fetched by</th><th>Scheme</th></tr>
+<tr><td>data/*.csv (drivers, results, races, qualifying, laptimes, pits)</td><td>1950–2022</td><td>Static, bundled with repo (Kaggle/Ergast)</td><td>Numeric driverId/raceId</td></tr>
+<tr><td>data/multi_circuit_fresh.csv</td><td>2023–present, every circuit</td><td><code class="inline">fetch_all_circuits_data.py</code>, and the auto-updater</td><td>Driver code (e.g. "VER"), synthetic raceId "2025_14"</td></tr>
+<tr><td>data/singapore_fresh.csv</td><td>2023–present, Singapore only</td><td><code class="inline">fetch_data.py</code> (legacy, pre-qualifying detail: pit stops, laps)</td><td>Driver code</td></tr>
+</table>
+
+<p>Two ID schemes have to become one before any groupby/rolling-window feature can be computed across the historical/fresh boundary. <code class="inline">build_combined_raw()</code> does this once, up front:</p>
+
+<pre class="mono"><span class="c"># pipeline.py</span>
+<span class="k">def</span> <span class="f">build_combined_raw</span>(raw: dict, fresh_path: str = <span class="k">None</span>) -&gt; dict:
+    <span class="c"># historical rows carry numeric driverId; fresh rows carry a code.
+    # Reconcile onto driver CODE before concatenating -- otherwise a
+    # veteran's pre-2023 rows and 2023+ rows look like two different people,
+    # breaking debut-year / recent-form / circuit-history continuity.</span>
+    hist_results = raw[<span class="s">"results"</span>].merge(raw[<span class="s">"drivers"</span>][[<span class="s">"driverId"</span>, <span class="s">"code"</span>]], on=<span class="s">"driverId"</span>)
+    hist_results = hist_results.drop(columns=<span class="s">"driverId"</span>).rename(columns={<span class="s">"code"</span>: <span class="s">"driverId"</span>})
+    ...
+    <span class="k">return</span> {<span class="s">"results"</span>: pd.concat([hist_results[cols], fresh[cols]]),
+            <span class="s">"races"</span>: pd.concat([hist_races, fresh_races])}
+</pre>
+
+<div class="callout bug">
+<b>Real bug this shape caused</b>
+Pre-1990s drivers have no 3-letter code (comes through as literal "\N"). A naive merge on that column collapses dozens of different people onto one join key, multiplying rows combinatorially. Fixed by filtering to <code class="inline">year &gt;= MULTI_CIRCUIT_MIN_YEAR</code> (2008) <i>before</i> any merge — the builders still see the full timeline for debut-year lookups, but the exploding join never happens.
+</div>
+</section>
+
+<!-- ============================== 3. FEATURES ============================== -->
+<section>
+<h2><span class="num">3.</span>Feature engineering — leakage-safe by construction</h2>
+<p class="lead">Every feature answers "what did we know <i>before</i> this race started?" — enforced structurally, not by a rule someone has to remember.</p>
+
+<table>
+<tr><th>Feature</th><th>Leakage guard</th></tr>
+<tr><td><code class="inline">driver_standing_before</code></td><td><code class="inline">cumsum() - points</code> — subtracts the row's own points before ranking</td></tr>
+<tr><td><code class="inline">driver_circuit_avg_finish</code></td><td><code class="inline">.expanding().mean().shift(1)</code> — shift excludes the current row</td></tr>
+<tr><td><code class="inline">driver_recent_form</code></td><td><code class="inline">.rolling(3).mean().shift(1)</code> — same shift</td></tr>
+<tr><td><code class="inline">constructor_recent_form</code></td><td>same rolling+shift, aggregated across both cars first</td></tr>
+</table>
+
+<div class="filepath">pipeline.py</div>
+<pre class="mono"><span class="k">def</span> <span class="f">build_season_form</span>(raw: dict) -&gt; pd.DataFrame:
+    full[<span class="s">"driver_points_before"</span>] = (
+        full.groupby([<span class="s">"year"</span>, <span class="s">"driverId"</span>])[<span class="s">"points"</span>].cumsum() - full[<span class="s">"points"</span>]
+    )
+    full[<span class="s">"driver_standing_before"</span>] = (
+        full.groupby([<span class="s">"year"</span>, <span class="s">"raceId"</span>])[<span class="s">"driver_points_before"</span>].rank(method=<span class="s">"min"</span>, ascending=<span class="k">False</span>)
+    )
+</pre>
+
+<pre class="mono"><span class="k">def</span> <span class="f">build_recent_form</span>(raw: dict) -&gt; pd.DataFrame:
+    full[<span class="s">"driver_recent_form"</span>] = (
+        full.groupby(<span class="s">"driverId"</span>)[<span class="s">"position_num"</span>]
+        .transform(<span class="k">lambda</span> s: s.rolling(<span class="n">RECENT_FORM_WINDOW</span>, min_periods=<span class="n">1</span>).mean().shift(<span class="n">1</span>))
+    )
+</pre>
+
+<p>Because every builder is already strictly pre-race, this same code predicts a race that <i>hasn't happened</i> — see §5.</p>
+
+<h3>Dropped despite being predictive</h3>
+<p><code class="inline">grid_position</code> correlates strongly with finishing position but doesn't exist until qualifying — usually about a day before the race. Kept out of <code class="inline">FEATURE_COLUMNS</code> on purpose, trading ~4pp accuracy for being usable the moment the previous race ends rather than only the day before the next one.</p>
+
+<pre class="mono"><span class="c"># pipeline.py — the feature contract</span>
+NUMERIC_FEATURE_COLUMNS = [<span class="s">"driver_standing_before"</span>, <span class="s">"constructor_standing_before"</span>,
+                            <span class="s">"years_experience"</span>, <span class="s">"is_rookie"</span>, <span class="s">"driver_circuit_avg_finish"</span>,
+                            <span class="s">"driver_recent_form"</span>, <span class="s">"constructor_recent_form"</span>]
+CATEGORICAL_FEATURE_COLUMNS = [<span class="s">"circuit_id"</span>]
+TARGET_COLUMN = <span class="s">"points_finish"</span>          <span class="c"># position 1..POINTS_POSITIONS</span>
+POINTS_POSITIONS = <span class="n">10</span>                     <span class="c"># F1 has paid points to P10 since 2010</span>
+</pre>
+</section>
+
+<!-- ============================== 4. TRAINING ============================== -->
+<section>
+<h2><span class="num">4.</span>Model selection &amp; training</h2>
+
+<div class="step-list">
+<li><b>Clean</b> — drop rows missing any <code class="inline">REQUIRED_COLUMNS</code> or the target.</li>
+<li><b>Chronological split</b> — most recent seasons held out as test, <i>not</i> a random shuffle. A random split would let the model be judged on data chronologically before some of its own training rows.</li>
+<li><b>Balance</b> — upsample the minority class, <i>after</i> the split, on the training fold only (upsampling before the split risks a duplicated row landing in both train and test).</li>
+<li><b>Compare 4 candidates</b> — Random Forest, Logistic Regression, SVM, HistGradientBoosting — each baseline vs. <code class="inline">GridSearchCV</code>-tuned.</li>
+<li><b>Refit winner on everything</b> — train+test years combined, since the shipped model should use every real result available.</li>
+</div>
+
+<div class="filepath">pipeline.py — chronological_split</div>
+<pre class="mono"><span class="k">def</span> <span class="f">chronological_split</span>(df, test_size=<span class="n">0.25</span>, test_circuit_id=<span class="k">None</span>):
+    eval_scope = df <span class="k">if</span> test_circuit_id <span class="k">is</span> <span class="k">None</span> <span class="k">else</span> df[df[<span class="s">"circuit_id"</span>] == str(test_circuit_id)]
+    <span class="c"># walk backward from the newest year, accumulating rows until ~25% held out</span>
+    test_years, running_total = [], <span class="n">0</span>
+    <span class="k">for</span> year <span class="k">in</span> reversed(year_counts.index.tolist()):
+        <span class="k">if</span> running_total &gt;= n_test_target: <span class="k">break</span>
+        test_years.append(year); running_total += year_counts[year]
+</pre>
+
+<p>Two training runs happen every time <code class="inline">pipeline.py</code> executes, and whichever generalizes better gets exported:</p>
+<table>
+<tr><th>Run</th><th>Trained on</th><th>Evaluated on</th></tr>
+<tr><td>Singapore-only</td><td>Singapore GP, every year</td><td>held-out recent Singapore years</td></tr>
+<tr><td>Multi-circuit</td><td>every circuit, 2008+</td><td>held-out years, <b>Singapore rows only</b> (<code class="inline">test_circuit_id</code>) — tests "does training everywhere help predict here"</td></tr>
+</table>
+<p>Multi-circuit has won every run so far (0.820 held-out accuracy on the current points-finish target, HistGradientBoostingClassifier) and is what's actually deployed.</p>
+</section>
+
+<!-- ============================== 5. HYPOTHETICAL RACE ============================== -->
+<section>
+<h2><span class="num">5.</span>The "hypothetical race" trick</h2>
+<p class="lead">How a model trained only on <i>results</i> predicts a race with no result yet.</p>
+
+<p>Because every feature builder is already strictly pre-race (§3), a placeholder row — real driver, real constructor, real circuit, <code class="inline">position = "\N"</code> — run through the same builders yields exactly the features that race would have had. Nothing from the future leaks in, because there is no future in the row.</p>
+
+<div class="filepath">webapp/predictions.py</div>
+<pre class="mono"><span class="k">def</span> <span class="f">upcoming_features</span>(self, circuit_id, entrants, year, round_):
+    placeholder_results = pd.DataFrame([
+        {<span class="s">"raceId"</span>: race_id, <span class="s">"driverId"</span>: code, <span class="s">"constructorId"</span>: constructor,
+         <span class="s">"position"</span>: NO_RESULT, <span class="s">"points"</span>: <span class="n">0</span>}
+        <span class="k">for</span> code, constructor <span class="k">in</span> entrants
+    ])
+    scoped = {<span class="s">"results"</span>: pd.concat([self.combined[<span class="s">"results"</span>][cols], placeholder_results]),
+              <span class="s">"races"</span>: pd.concat([self.combined[<span class="s">"races"</span>], placeholder_race])}
+    <span class="k">return</span> self._apply_builders(scoped)   <span class="c"># same 4 builders as training, unmodified</span>
+</pre>
+
+<p>Where "next race" always slots in: <b>immediately after the last completed race</b>, regardless of which circuit is being asked about.</p>
+<div class="callout bug">
+<b>Real bug this caught</b>
+Slotting a placeholder into a season with zero completed races ties every driver's <code class="inline">driver_standing_before</code> at P1 (everyone's cumulative points are 0) — silently destroying the model's strongest feature and leaving it to guess from circuit history alone. Fixed: features are always computed at <code class="inline">next_round_slot()</code> (the real "day after the last race" position), and only the <i>label</i> shown to the user reflects which future round was actually asked about.
+</div>
+</section>
+
+<!-- ============================== 6. MODULE MAP ============================== -->
+<section>
+<h2><span class="num">6.</span>Web app module map</h2>
+<table>
+<tr><th>Module</th><th>Owns</th></tr>
+<tr><td><code class="inline">main.py</code></td><td>FastAPI app, route wiring, module-level singletons (service/model_store/analyst/live/news/auto_update)</td></tr>
+<tr><td><code class="inline">model_store.py</code></td><td><code class="inline">ModelStore</code> — loads model.pkl, exposes <code class="inline">.reload()</code> for hot-swap without a restart</td></tr>
+<tr><td><code class="inline">predictions.py</code></td><td><code class="inline">PredictionService</code> — feature building, the placeholder-row trick, rank-based top-N labeling</td></tr>
+<tr><td><code class="inline">reference.py</code></td><td><code class="inline">Reference</code> — driver/team/circuit display names, colors; era-collision handling for reused driver codes</td></tr>
+<tr><td><code class="inline">live_data.py</code></td><td><code class="inline">LiveData</code> — Jolpica fetch + on-disk cache; <code class="inline">refresh_season()</code>, <code class="inline">season_roster()</code>, <code class="inline">schedule()</code></td></tr>
+<tr><td><code class="inline">scheduler.py</code></td><td><code class="inline">AutoUpdateScheduler</code> — background thread: check → fetch → publish → retrain → swap (§8)</td></tr>
+<tr><td><code class="inline">agent.py</code></td><td><code class="inline">RaceAnalyst</code> — Claude tool-use loop over read-only wrappers around PredictionService</td></tr>
+<tr><td><code class="inline">news.py</code></td><td><code class="inline">NewsService</code> — RSS fetch, keyword-based topic tagging, long TTL cache</td></tr>
+<tr><td><code class="inline">static/app.js</code></td><td>All frontend state + rendering, no framework</td></tr>
+<tr><td><code class="inline">../analytics.py</code></td><td>Season EDA over the model's own features — imported by <code class="inline">main.py</code> <i>and</i> by the notebook (§11)</td></tr>
+</table>
+
+<p>Construction order in <code class="inline">main.py</code> matters — each singleton depends on the previous:</p>
+<pre class="mono">reference     = Reference(pipeline.load_raw_tables(DATA_DIR))
+model_store   = ModelStore()
+service       = PredictionService(DATA_DIR, model_store, reference)
+analyst       = RaceAnalyst(service)
+live          = LiveData(DATA_DIR)
+auto_update   = AutoUpdateScheduler(live, DATA_DIR, model_store, _rebuild_service, PROJECT_ROOT)
+auto_update.start()   <span class="c"># daemon thread begins here, at import time</span>
+</pre>
+</section>
+
+<!-- ============================== 7. ONE REQUEST ============================== -->
+<section>
+<h2><span class="num">7.</span>Anatomy of one request</h2>
+<p class="lead"><code class="inline">GET /api/predictions/upcoming?circuit=monza</code>, end to end:</p>
+<div class="step-list">
+<li><code class="inline">main.py</code> route handler calls <code class="inline">service.latest_entry_list()</code> — the 20 (driver, constructor) pairs from the most recent race.</li>
+<li><code class="inline">service.next_round_slot()</code> — reads <code class="inline">race_catalog()</code>, returns <code class="inline">(year, last_round + 1)</code>.</li>
+<li><code class="inline">service.predict_upcoming(circuit, entrants, year, round_)</code> — memoized via <code class="inline">@functools.lru_cache</code>, keyed on all four args.</li>
+<li>Cache miss → <code class="inline">upcoming_features()</code> builds the placeholder row, runs the 4 feature builders (§5).</li>
+<li><code class="inline">model_store.predict_points_proba(features)</code> — <code class="inline">model.predict_proba(features)[:, class_1_index]</code>.</li>
+<li><code class="inline">_to_rows()</code> sorts by probability descending, marks <code class="inline">predicted_points = position &lt; 10</code> (rank-based, not a 50% cutoff — see §12).</li>
+<li>Response JSON assembled with <code class="inline">reference.driver()</code> / <code class="inline">.team()</code> for display names.</li>
+</div>
+</section>
+
+<!-- ============================== 8. AUTO-UPDATE ============================== -->
+<section>
+<h2><span class="num">8.</span>The auto-update pipeline — the coordination core</h2>
+<p class="lead">A daemon thread, started once at import time, living inside the same <code class="inline">uvicorn</code> process — not a cron job, not a separate service.</p>
+
+<div class="filepath">webapp/scheduler.py</div>
+<pre class="mono"><span class="k">def</span> <span class="f">_loop</span>(self):
+    <span class="k">while</span> <span class="k">not</span> self._stop.is_set():
+        self.check_now()
+        self._stop.wait(CHECK_INTERVAL_SECONDS)   <span class="c"># default 3 hours</span>
+</pre>
+
+<div class="step-list">
+<li><b>Check</b> — <code class="inline">live.refresh_season(year)</code> fetches that season from Jolpica, diffs row count against <code class="inline">data/multi_circuit_fresh.csv</code>.</li>
+<li><b>Publish immediately</b> — if changed, <code class="inline">rebuild_service()</code> runs <i>before</i> retraining. Predictions reflect the new race's standings/form within seconds; the model's learned weights lag until step 4.</li>
+<li><b>Retrain as a subprocess</b> — <code class="inline">subprocess.run([sys.executable, "pipeline.py", ...])</code>, not an in-process call: a ~20-30 min GridSearchCV sweep would otherwise stall the event loop, and a crash there can't take the API down.</li>
+<li><b>Atomic swap</b> — <code class="inline">os.replace(tmp_path, model.pkl)</code>, then <code class="inline">model_store.reload()</code>. Every component already holds a reference to the same <code class="inline">ModelStore</code> object, so overwriting <code class="inline">.model</code> inside it is visible everywhere instantly — no restart.</li>
+</div>
+
+<pre class="mono"><span class="k">def</span> <span class="f">check_now</span>(self, force=<span class="k">False</span>):
+    <span class="k">if</span> <span class="k">not</span> self._busy.acquire(blocking=<span class="k">False</span>):
+        <span class="k">return</span> {<span class="s">"ok"</span>: <span class="k">False</span>, <span class="s">"busy"</span>: <span class="k">True</span>}     <span class="c"># scheduled + manual can't race each other</span>
+    ...
+    <span class="k">if</span> result.get(<span class="s">"changed"</span>):
+        self.rebuild_service()               <span class="c"># step 2 -- fast</span>
+        self.last_data_refresh = time.time()
+    self._retrain()                          <span class="c"># step 3+4 -- slow</span>
+</pre>
+
+<h3>Why a subprocess, concretely</h3>
+<pre class="mono">os.replace(tmp_path, self.model_store.path)   <span class="c"># atomic on same filesystem --</span>
+                                               <span class="c"># a request mid-swap sees either the</span>
+                                               <span class="c"># whole old file or the whole new one,</span>
+                                               <span class="c"># never a partial write</span>
+self.model_store.reload()
+self.rebuild_service()                        <span class="c"># feature tables were built pre-retrain, redo them</span>
+</pre>
+</section>
+
+<!-- ============================== 9. FINGERPRINT ============================== -->
+<section>
+<h2><span class="num">9.</span>Crash-safety: the fingerprint sidecar</h2>
+<p class="lead">"Did a fetch change anything?" isn't enough on its own — it can't recover from an interrupted retrain.</p>
+
+<div class="callout bug">
+<b>The failure mode this fixes</b>
+Server restarts mid-retrain (deploy, laptop sleep) → new race data already on disk, model never replaced. Next boot asks "did the last fetch add rows?" — no, they're already there — and never retrains again, silently staying one race behind forever.
+</div>
+
+<div class="filepath">webapp/scheduler.py</div>
+<pre class="mono"><span class="k">def</span> <span class="f">_data_fingerprint</span>(self) -&gt; str:
+    frame = pd.read_csv(fresh_csv_path, usecols=[<span class="s">"year"</span>, <span class="s">"round"</span>])
+    latest = frame.sort_values([<span class="s">"year"</span>, <span class="s">"round"</span>]).iloc[-<span class="n">1</span>]
+    <span class="k">return</span> f<span class="s">"{latest.year}_{latest.round}_{len(frame)}"</span>
+
+<span class="k">def</span> <span class="f">model_is_stale</span>(self) -&gt; bool:
+    <span class="k">return</span> self._data_fingerprint() != self._trained_fingerprint()   <span class="c"># reads model.pkl.meta.json</span>
+</pre>
+
+<p>Written only <i>after</i> the swap succeeds — a fingerprint recorded before the model actually landed would mark an interrupted retrain as done:</p>
+<pre class="mono">fingerprint_at_start = self._data_fingerprint()
+<span class="c">... subprocess.run(pipeline.py) ...</span>
+os.replace(tmp_path, self.model_store.path)
+self._record_trained_fingerprint(fingerprint_at_start)   <span class="c"># only now</span>
+</pre>
+<p><code class="inline">model.pkl.meta.json</code> is gitignored — it describes one machine's local model, and committing it would tell a fresh clone the checked-in model.pkl is current when it almost certainly isn't.</p>
+</section>
+
+<!-- ============================== 10. FRONTEND ============================== -->
+<section>
+<h2><span class="num">10.</span>Frontend structure</h2>
+<p class="lead">No framework — one <code class="inline">state</code> object, one <code class="inline">el()</code> helper, direct DOM construction.</p>
+
+<pre class="mono"><span class="k">const</span> el = (tag, className, text) =&gt; {
+  <span class="k">const</span> node = document.createElement(tag);
+  <span class="k">if</span> (className) node.className = className;
+  <span class="k">if</span> (text !== undefined) node.textContent = text;   <span class="c">// never innerHTML for data --</span>
+  <span class="k">return</span> node;                                     <span class="c">// XSS-safe by construction</span>
+};
+</pre>
+
+<p>Four independent render paths, mirroring the backend split (§1). None calls another; each owns its own <code class="inline">state.*Loaded</code> flag:</p>
+<table>
+<tr><th>Entry point</th><th>Endpoint</th><th>Loaded</th></tr>
+<tr><td><code class="inline">loadPredictions()</code></td><td><code class="inline">/api/predictions/*</code></td><td>At boot</td></tr>
+<tr><td><code class="inline">loadAnalytics()</code></td><td><code class="inline">/api/analytics</code></td><td>On first tab show</td></tr>
+<tr><td><code class="inline">loadNews()</code></td><td><code class="inline">/api/news</code></td><td>On first tab show</td></tr>
+<tr><td><code class="inline">sendChat()</code></td><td><code class="inline">/api/chat</code></td><td>On submit</td></tr>
+</table>
+<p>The two lazy tabs are wired in one line each inside <code class="inline">showTab()</code> — no router, no lifecycle framework:</p>
+<pre class="mono"><span class="k">function</span> <span class="f">showTab</span>(name) {
+  $$(<span class="s">".tab"</span>).forEach((tab) =&gt; tab.classList.toggle(<span class="s">"is-active"</span>, tab.id === `tab-${name}`));
+  <span class="k">if</span> (name === <span class="s">"news"</span>      &amp;&amp; !state.newsLoaded)      loadNews();
+  <span class="k">if</span> (name === <span class="s">"analytics"</span> &amp;&amp; !state.analyticsLoaded) loadAnalytics();
+}
+</pre>
+
+<h3>Era-collision gating (photos)</h3>
+<p>Driver codes repeat across eras (<code class="inline">VER</code> = Verstappen today, Vergne 2012–14). A photo keyed only by code would risk showing the wrong face on an old replay:</p>
+<pre class="mono"><span class="k">const</span> isMostRecentReplay =
+  isReplay &amp;&amp; state.races.length &gt; 0 &amp;&amp; payload.race.race_id === state.races[<span class="n">0</span>].race_id;
+<span class="k">const</span> showDriverPhoto = !isReplay || isMostRecentReplay;   <span class="c">// team badges have no such collision</span>
+</pre>
+</section>
+
+<!-- ============================== 11. ANALYTICS ============================== -->
+<section>
+<h2><span class="num">11.</span>Analytics — one EDA implementation, two surfaces</h2>
+<p class="lead">The Analytics tab and the project notebook show the same numbers because they call the same function. <code class="inline">analytics.py</code> is the only implementation; neither surface computes anything itself.</p>
+
+<div class="callout bug">
+<b>The failure mode this avoids</b>
+Two "official" answers to the same question. A page that queries one way and a notebook that recomputes another drift the moment either changes — and nothing tells you which one is wrong.
+</div>
+
+<div class="filepath">analytics.py — the split that makes sharing possible</div>
+<pre class="mono"><span class="k">def</span> <span class="f">build_season_frame</span>(data_dir=<span class="s">"data"</span>, year=<span class="k">None</span>):
+    <span class="c"># Standalone: rebuilds the frame from the CSVs via pipeline.py's own
+    # builders. The notebook has no PredictionService, so it needs this.</span>
+    ...
+    <span class="k">return</span> base[base[<span class="s">"year"</span>] == year].copy(), year
+
+<span class="k">def</span> <span class="f">compute</span>(frame: pd.DataFrame, year: int) -&gt; dict:
+    <span class="c"># PURE -- takes an already-built frame. That one design choice is what
+    # lets the web app hand over its cached table instead of rebuilding
+    # the whole timeline on every request.</span>
+</pre>
+
+<table>
+<tr><th>Caller</th><th>Where the frame comes from</th><th>Cost per call</th></tr>
+<tr><td><code class="inline">GET /api/analytics</code></td><td><code class="inline">service.known_features()</code> — already cached at startup</td><td>Aggregation only</td></tr>
+<tr><td>Notebook cell</td><td><code class="inline">build_season_frame("data")</code></td><td>Full rebuild (once)</td></tr>
+</table>
+
+<div class="filepath">webapp/main.py</div>
+<pre class="mono"><span class="f">@app.get</span>(<span class="s">"/api/analytics"</span>)
+<span class="k">def</span> <span class="f">get_analytics</span>(year: int = <span class="k">None</span>):
+    features = service.known_features()
+    seasons  = sorted({int(v) <span class="k">for</span> v <span class="k">in</span> features[<span class="s">"year"</span>].dropna().unique()}, reverse=<span class="k">True</span>)
+    target   = int(year) <span class="k">if</span> year <span class="k">is</span> <span class="k">not</span> <span class="k">None</span> <span class="k">else</span> seasons[<span class="n">0</span>]
+    report   = analytics.compute(features[features[<span class="s">"year"</span>] == target], target)
+    <span class="c"># Ids are what the frame carries; only the UI wants display names.</span>
+    <span class="k">for</span> row <span class="k">in</span> report[<span class="s">"by_team"</span>]:
+        row[<span class="s">"name"</span>]  = reference.team(row[<span class="s">"team"</span>])[<span class="s">"name"</span>]
+    <span class="k">return</span> report
+</pre>
+
+<h3>Why one season, not all of them</h3>
+<p><code class="inline">driver_standing_before</code> and the rolling-form features are <i>within-season</i> quantities — a championship position only means something relative to the season it was computed in. Pooling 2008–2025 would average across grids that share no drivers, cars or regulations, and a reader consulting analytics to reason about the next race wants this year's competitive order.</p>
+
+<h3>Two definitional decisions worth copying</h3>
+<pre class="mono"><span class="k">def</span> <span class="f">_scored</span>(frame):
+    <span class="c"># NaN, not False, for a DNF -- excluded from every rate rather than
+    # silently counted as a failure, which conflates "wasn't fast enough"
+    # with "didn't finish".</span>
+    <span class="k">return</span> frame[<span class="s">"actual_position"</span>].between(<span class="n">1</span>, pipeline.POINTS_POSITIONS)
+
+<span class="c"># Quantile buckets, not equal-width: championship standing is uniform but
+# circuit-average-finish clusters hard, and equal-width bins there produce
+# near-empty extremes whose rates swing on two or three drivers.</span>
+binned = pd.qcut(usable[feature], q=buckets, duplicates=<span class="s">"drop"</span>)
+</pre>
+
+<h3>Charts: hand-rolled SVG, real pixels</h3>
+<p>No charting library — same no-build-step stance as the rest of the frontend. Charts are drawn in pixel coordinates measured off their container rather than in a viewBox scaled to fit, because a stretched viewBox shrinks the tick labels along with the bars.</p>
+
+<div class="callout bug">
+<b>Real bug this shape caused</b>
+An <code class="inline">auto-fit</code> grid gives its first child the whole row until siblings arrive. Measuring each small multiple as it was appended read a width that cell would not keep — so <code class="inline">preserveAspectRatio</code> letterboxed chart #1 down to a third of its intended height, labels and all. Fixed by building every cell first, then measuring:
+</div>
+<pre class="mono"><span class="c">// pass 1: build and append, measuring nothing</span>
+<span class="k">const</span> cells = distributions.filter((e) =&gt; e.counts.length).map((entry) =&gt; {
+  <span class="k">const</span> plot = el(<span class="s">"div"</span>); cell.appendChild(plot); container.appendChild(cell);
+  <span class="k">return</span> { entry, plot };
+});
+<span class="c">// pass 2: the grid has settled, so clientWidth is now the real column</span>
+cells.forEach(({ entry, plot }) =&gt; { <span class="k">const</span> width = chartWidth(plot, <span class="n">240</span>); ... });
+</pre>
+
+<p>Colour follows the job, not the entity. One hue for every single-series chart (categories are already named on the axis, so a second hue would encode nothing); a two-hue diverging scale <i>only</i> on the correlation chart, where the sign genuinely is the message. The pair was validated against this app's dark surface rather than assumed — CVD ΔE 19.2, normal-vision ΔE 29.0, both clear of the 8 / 15 floors.</p>
+
+<h3>The notebook side</h3>
+<p>The notebook stays what it has always been — data cleaning and EDA, never training. Its final section is three lines of setup and then plots of a dictionary it did not compute:</p>
+<div class="filepath">SC1015 Formula 1 Mini-Project.ipynb — final section</div>
+<pre class="mono"><span class="k">import</span> analytics
+
+season_frame, season_year = analytics.build_season_frame(<span class="s">"data"</span>)
+report = analytics.compute(season_frame, season_year)
+
+<span class="c"># ... every cell below reads report[...] -- nothing is recomputed here</span>
+correlations = pd.DataFrame(report[<span class="s">"correlations"</span>])
+plt.barh(order[<span class="s">"label"</span>], order[<span class="s">"correlation"</span>], color=colours)
+</pre>
+<p>So a fix to a definition — how a DNF is treated, where a bucket boundary falls — lands in one file and both surfaces move together.</p>
+</section>
+
+<!-- ============================== 12. PATTERNS ============================== -->
+<section>
+<h2><span class="num">12.</span>Recurring design patterns</h2>
+
+<h3>Rank-based, not threshold-based, classification</h3>
+<pre class="mono"><span class="c">// WRONG -- disagrees with what the sorted-by-probability UI visibly shows</span>
+predicted_points = probability &gt;= <span class="n">0.5</span>
+
+<span class="c">// RIGHT -- a points finish always names exactly POINTS_POSITIONS drivers</span>
+predicted_points = position_in_sorted_list &lt; POINTS_POSITIONS
+</pre>
+<p>The threshold version let a borderline driver at rank 10 with 42% probability read as "not predicted" while still visibly sitting in the top-10 rows — a real miss then displayed as "called right" when the driver finished outside the points and the (wrong) prediction also said "no."</p>
+
+<h3>Cache-poisoning-proof caching</h3>
+<pre class="mono"><span class="c"># webapp/images.py's predecessor (removed, see §13) -- the general shape</span>
+<span class="k">if</span> <span class="k">not</span> response.ok:
+    <span class="k">return</span> miss              <span class="c"># NEVER cached -- a 403 today isn't "no photo forever"</span>
+result = {...}
+self._cache[title] = result   <span class="c"># only a genuine answer gets remembered</span>
+</pre>
+<p>Paired with a <code class="inline">CACHE_VERSION</code> constant bumped whenever a bug could have written bad entries — old-version cache files are discarded wholesale on load rather than trusted.</p>
+
+<h3>Classify by what the reader wants, not by what the source is</h3>
+<p>The news tab filters by topic, not by outlet — "show me driver news" is a question a reader has; "show me one site's coverage" is not. Tagging happens server-side on title + summary, and a headline can carry more than one tag:</p>
+<div class="filepath">webapp/news.py</div>
+<pre class="mono">CATEGORIES = [<span class="s">"Drivers"</span>, <span class="s">"Teams"</span>, <span class="s">"Regulations"</span>, <span class="s">"Race Weekend"</span>, <span class="s">"Other"</span>]
+
+<span class="c"># Keyword sets are seeded from the data the app already has -- current
+# grid surnames and team names -- so a new driver is matchable the moment
+# the roster refresh picks them up, with no keyword list to maintain.</span>
+DRIVER_KEYWORDS = {surname.lower() <span class="k">for</span> _, surname, _ <span class="k">in</span> CURRENT_GRID.values()} | {
+    <span class="s">"driver"</span>, <span class="s">"rookie"</span>, <span class="s">"seat"</span>, <span class="s">"signing"</span>, <span class="s">"contract"</span>, <span class="s">"debut"</span>, ...}
+
+<span class="k">def</span> <span class="f">_categorize</span>(title: str, summary: str) -&gt; list:
+    text = f<span class="s">"{title} {summary}"</span>.lower()
+    hits = []
+    <span class="k">if</span> any(k <span class="k">in</span> text <span class="k">for</span> k <span class="k">in</span> DRIVER_KEYWORDS): hits.append(<span class="s">"Drivers"</span>)
+    ...
+    <span class="k">return</span> hits <span class="k">or</span> [<span class="s">"Other"</span>]   <span class="c"># never silently drop a headline</span>
+</pre>
+
+<h3>Graceful degradation, everywhere external</h3>
+<table>
+<tr><th>Dependency</th><th>If unreachable</th></tr>
+<tr><td>Jolpica-F1 API</td><td>Falls back to bundled CSVs; <code class="inline">live.online</code> reported in <code class="inline">/api/status</code></td></tr>
+<tr><td>ANTHROPIC_API_KEY unset</td><td>Assistant tab reports unavailable; dashboard unaffected</td></tr>
+<tr><td>RSS feed down</td><td>Other feeds still return; error message names which one and why</td></tr>
+<tr><td>Local photo missing</td><td>404 → frontend falls back to colored-initials monogram</td></tr>
+</table>
+</section>
+
+<!-- ============================== 13. FILE REFERENCE ============================== -->
+<section>
+<h2><span class="num">13.</span>File-by-file reference</h2>
+<table class="flowing">
+<tr><th>File</th><th>Role</th></tr>
+<tr><td><code class="inline">pipeline.py</code></td><td>Single source of truth: features, target, training, export. Everything else imports from here.</td></tr>
+<tr><td><code class="inline">fetch_all_circuits_data.py</code></td><td>Pulls one season, every circuit, from Jolpica — feeds <code class="inline">multi_circuit_fresh.csv</code></td></tr>
+<tr><td><code class="inline">fetch_data.py</code></td><td>Legacy: Singapore-only detail fetch (laps, pit stops) — imports <code class="inline">TARGET_COLUMN</code>/<code class="inline">POINTS_POSITIONS</code> from pipeline.py rather than hardcoding them, after a drift bug silently dropped every fresh row it produced</td></tr>
+<tr><td><code class="inline">analytics.py</code></td><td>§11 — season EDA over the model's own features; the one implementation behind both the Analytics tab and the notebook</td></tr>
+<tr><td><code class="inline">SC1015 … .ipynb</code></td><td>Data cleaning + EDA only — never trains. Its last section imports <code class="inline">analytics.py</code> rather than recomputing anything.</td></tr>
+<tr><td><code class="inline">f1_agent.py</code></td><td>Standalone CLI tool-use demo, separate from the web app's agent.py, sharing the same model.pkl</td></tr>
+<tr><td><code class="inline">webapp/main.py</code></td><td>FastAPI routes + singleton wiring</td></tr>
+<tr><td><code class="inline">webapp/scheduler.py</code></td><td>§8 — the coordination core</td></tr>
+<tr><td><code class="inline">webapp/predictions.py</code></td><td>§5 — feature reuse, placeholder-row trick, rank-based labeling</td></tr>
+<tr><td><code class="inline">webapp/model_store.py</code></td><td>Loads/reloads model.pkl; never trains</td></tr>
+<tr><td><code class="inline">webapp/live_data.py</code></td><td>Jolpica fetch + disk cache; season roster; calendar</td></tr>
+<tr><td><code class="inline">webapp/reference.py</code></td><td>Display names/colors; era-collision handling</td></tr>
+<tr><td><code class="inline">webapp/agent.py</code></td><td>Claude tool-use loop, read-only tools over PredictionService</td></tr>
+<tr><td><code class="inline">webapp/news.py</code></td><td>RSS fetch, topic tagging, long-TTL cache</td></tr>
+<tr><td><code class="inline">webapp/static/app.js</code></td><td>All frontend logic, no build step — including §11's hand-rolled SVG charts</td></tr>
+<tr><td><code class="inline">webapp/static/photos/</code></td><td>Locally-bundled driver/team images — see photos/README.md</td></tr>
+<tr><td><code class="inline">model.pkl</code></td><td>Committed, trained artifact — kept current by §8/§9</td></tr>
+<tr><td><code class="inline">model.pkl.meta.json</code></td><td>Gitignored — §9's fingerprint, machine-local</td></tr>
+</table>
+</section>
+
+</body>
+</html>
