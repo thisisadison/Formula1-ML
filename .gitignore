@@ -4,3 +4,9 @@ __pycache__/
 # Written at runtime by the web app: Jolpica schedule responses and
 # resolved Wikipedia thumbnail URLs. Both are rebuildable caches.
 data/cache/
+
+# Records which data the local model.pkl was trained through. Machine-local
+# by nature -- committing it would tell a fresh clone that the checked-in
+# model is current when it almost certainly isn't.
+model.pkl.meta.json
+model.pkl.new
