@@ -11,7 +11,6 @@ Two clearly separate code paths, as reflected in the routes:
 import datetime
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -20,7 +19,6 @@ from pydantic import BaseModel
 
 import pipeline
 from webapp.agent import RaceAnalyst
-from webapp.images import ImageResolver
 from webapp.live_data import LiveData
 from webapp.model_store import ModelStore
 from webapp.news import NewsService
@@ -64,8 +62,6 @@ def _rebuild_service() -> None:
     analyst = RaceAnalyst(service)
 
 
-images = ImageResolver(os.path.join(DATA_DIR, "cache", "images.json"))
-
 auto_update = AutoUpdateScheduler(live, DATA_DIR, model_store, _rebuild_service, PROJECT_ROOT)
 auto_update.start()
 
@@ -76,10 +72,6 @@ threading.Thread(target=_refresh_roster, daemon=True, name="f1-roster").start()
 
 class ChatRequest(BaseModel):
     question: str
-
-
-class ImageRequest(BaseModel):
-    titles: list[str]
 
 
 @app.get("/api/status")
@@ -247,16 +239,6 @@ def auto_update_check_now(force: bool = False):
         return {"started": False, "reason": "busy", "state": auto_update.state}
     threading.Thread(target=auto_update.check_now, kwargs={"force": force}, daemon=True).start()
     return {"started": True}
-
-
-@app.post("/api/images")
-def resolve_images(request: ImageRequest):
-    """Batch Wikipedia thumbnail lookup, called after the page has
-    already rendered -- photos fill in, they are never waited on."""
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        titles = request.titles[:40]
-        resolved = list(pool.map(images.lookup, titles))
-    return dict(zip(titles, resolved))
 
 
 @app.get("/api/news")

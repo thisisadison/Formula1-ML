@@ -238,23 +238,35 @@ async function loadStatus() {
 
 /* ------------------------------------------------------------- predictions */
 
-// A pre-created <img data-wiki="..."> that hydratePhotos() fills in later --
-// the same pattern for a driver headshot in the avatar circle and a team
-// badge next to the team name, so one batched lookup covers both.
-function wikiPhoto(title, className) {
+// Local files only -- see webapp/static/photos/README.md for naming. No
+// live lookup: a bundled file can't return a dead host or a poisoned
+// cache, and a missing one just 404s, which onerror below treats the
+// same as "no photo" always has -- fall back to the monogram / no badge.
+const driverPhotoUrl = (code) => `/photos/drivers/${code}.jpg`;
+const teamPhotoUrl = (teamId) => `/photos/teams/${teamId}.png`;
+
+function localPhoto(src, className) {
   const img = el("img", className);
   img.alt = "";
   img.loading = "lazy";
-  img.dataset.wiki = title;
+  img.addEventListener("load", () => img.classList.add("is-loaded"));
+  img.addEventListener("error", () => img.remove());
+  img.src = src;
   return img;
 }
 
-function avatarFor(driver, team) {
+// showDriverPhoto is false for anything but the current grid (the "Next
+// race" tab, or a replay of the single most recent race) -- driver CODES
+// get reused across eras (VER is both Verstappen today and Vergne in
+// 2012-2014; see reference.py's CURRENT_GRID), so a photo keyed only by
+// code would show the wrong person's face on an older replay. Team ids
+// don't have that collision, so team badges show everywhere.
+function avatarFor(driver, team, showDriverPhoto) {
   const avatar = el("div", "avatar");
   avatar.style.background = `linear-gradient(150deg, ${team.color}, ${team.color}55)`;
   avatar.appendChild(el("span", null, driver.code));
-  if (driver.name && driver.name !== driver.code) {
-    avatar.appendChild(wikiPhoto(driver.name));
+  if (showDriverPhoto && driver.code) {
+    avatar.appendChild(localPhoto(driverPhotoUrl(driver.code)));
   }
   return avatar;
 }
@@ -274,7 +286,7 @@ function featureBlock(key, value) {
   return box;
 }
 
-function driverCard(row, index, showActual) {
+function driverCard(row, index, showActual, showDriverPhoto) {
   const card = el("article", "card");
   card.style.setProperty("--team", row.team.color);
   // predicted_points IS the top 10 rows by probability, not a raw
@@ -285,12 +297,12 @@ function driverCard(row, index, showActual) {
 
   const main = el("div", "card__main");
   main.appendChild(el("div", "card__rank", String(index + 1)));
-  main.appendChild(avatarFor(row.driver, row.team));
+  main.appendChild(avatarFor(row.driver, row.team, showDriverPhoto));
 
   const who = el("div", "card__who");
   who.appendChild(el("div", "card__name", row.driver.name));
   const teamRow = el("div", "card__team");
-  teamRow.appendChild(wikiPhoto(row.team.name, "card__team-badge"));
+  teamRow.appendChild(localPhoto(teamPhotoUrl(row.team.id), "card__team-badge"));
   teamRow.appendChild(el("span", null, row.team.name));
   who.appendChild(teamRow);
   main.appendChild(who);
@@ -331,6 +343,20 @@ function driverCard(row, index, showActual) {
 
   const detail = el("div", "card__detail");
   const inner = el("div");
+  // A large photo above the stats, only where showDriverPhoto allows one
+  // (see avatarFor's comment) -- the outer .card__detail already slides
+  // the whole panel open (grid-template-rows), so this only needs its own
+  // opacity fade, timed to land just after that, for "appears on top with
+  // a fade transition into the statistics" rather than popping in at once.
+  if (showDriverPhoto) {
+    const photoBanner = el("div", "card__photo");
+    const img = localPhoto(driverPhotoUrl(row.driver.code));
+    // A missing file should remove the whole banner, not leave an empty
+    // gradient box where the (absent) img used to be.
+    img.addEventListener("error", () => photoBanner.remove());
+    photoBanner.appendChild(img);
+    inner.appendChild(photoBanner);
+  }
   const features = el("div", "features");
   Object.entries(row.features).forEach(([key, value]) => {
     features.appendChild(featureBlock(key, value));
@@ -432,47 +458,26 @@ async function loadPredictions() {
     scoreline.classList.remove("is-hidden");
   }
 
+  // Driver photos only for the current grid -- codes are reused across
+  // eras (see avatarFor's comment), so an older replay could show the
+  // wrong person. "Current grid" is the upcoming tab (always today's
+  // drivers) or a replay of the single most recent race; state.races is
+  // already newest-first, so [0] is that race whenever it loaded.
+  const isMostRecentReplay =
+    isReplay && state.races.length > 0 && payload.race.race_id === state.races[0].race_id;
+  const showDriverPhoto = !isReplay || isMostRecentReplay;
+
   const list = $("#driver-list");
   list.innerHTML = "";
-  payload.drivers.forEach((row, index) => list.appendChild(driverCard(row, index, isReplay)));
+  payload.drivers.forEach((row, index) =>
+    list.appendChild(driverCard(row, index, isReplay, showDriverPhoto))
+  );
 
   $("#predictions-footnote").textContent = isReplay
     ? "Left column is what the model said beforehand; right column is the real classified result. Features are strictly pre-race: championship and constructor standing going into the race, seasons of experience, average finish at this circuit, and three-race form for driver and team — nothing from qualifying or from during the race. Read the score as a sanity check rather than a measure of accuracy, though: pipeline.py refits the exported model on every season before saving it, so a race shown here was part of that final fit. The honest number is the held-out score printed when you train."
     : `Prediction only — this race hasn't been run, so there are no actual results to compare against. Standings and form are as of ${payload.form_as_of.label || "the latest race in the data"}, which is the most recent information the model has; nothing between then and this race is knowable yet. Uses pre-qualifying information only — no grid position, no lap or pit-stop times. Tap a driver to see the inputs behind their number.`;
 
-  hydratePhotos();
   renderSeasonStrip();
-}
-
-/* Photos are fetched only after the cards are on screen, and every one of
-   them is optional -- driver monograms and the plain team-colour bar are
-   the designed defaults, not placeholders waiting to be replaced. Covers
-   both driver headshots (in the avatar circle) and team badges (next to
-   the team name) in one batched lookup, since both are just <img
-   data-wiki="..."> at this point. */
-async function hydratePhotos() {
-  const targets = $$("img[data-wiki]");
-  const titles = Array.from(new Set(targets.map((node) => node.dataset.wiki)));
-  if (!titles.length) return;
-
-  let resolved;
-  try {
-    resolved = await api("/api/images", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ titles }),
-    });
-  } catch (error) {
-    return;
-  }
-
-  targets.forEach((img) => {
-    const found = resolved[img.dataset.wiki];
-    if (!found || !found.image) return;
-    img.addEventListener("load", () => img.classList.add("is-loaded"));
-    img.addEventListener("error", () => img.remove());
-    img.src = found.image;
-  });
 }
 
 /* ------------------------------------------------------------------ season */

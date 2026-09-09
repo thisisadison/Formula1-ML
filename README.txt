@@ -14,13 +14,24 @@
 - Predictions tab (deterministic, no LLM): a season strip up top marks every round DONE or NEXT, so
   you can see at a glance what's already happened and what to watch for. Click a completed round to
   replay it (what the model would have said beforehand vs. what actually happened, side by side with
-  a called-right/missed verdict), or an upcoming one for a live prediction against the current grid
-  -- either way every driver shows a photo (from Wikipedia, Commons-licensed) next to a small team
-  badge, and expands to the feature values behind their number. The 10 highest-probability drivers
-  are marked with a red edge -- that's the model's actual points-finish pick, exactly 10 of them
-  (pipeline.py's POINTS_POSITIONS), not a raw percentage cutoff (which could mark 6 or 14 drivers
-  "predicted" depending on how confident the model is, and disagree with what's visibly in the top 10
-  rows). Or skip the strip and pick any circuit freely via the chips below it.
+  a called-right/missed verdict), or an upcoming one for a live prediction against the current grid.
+  The 10 highest-probability drivers are marked with a red edge -- that's the model's actual
+  points-finish pick, exactly 10 of them (pipeline.py's POINTS_POSITIONS), not a raw percentage
+  cutoff (which could mark 6 or 14 drivers "predicted" depending on how confident the model is, and
+  disagree with what's visibly in the top 10 rows). Or skip the strip and pick any circuit freely via
+  the chips below it. Tap a driver to expand it: the feature values behind their number, and (on the
+  current grid only -- see photos below) a large photo above them, fading in as the panel opens.
+- Photos: local files, not a live lookup -- see webapp/static/photos/README.md for exactly what to
+  name them (drivers/<CODE>.jpg, teams/<id>.png). Nothing is bundled by default; missing files just
+  fall back to the driver's colored initials / no team badge, same as before a photo is added. Driver
+  photos only show for the current grid (the "Next race" tab, or a replay of the single most recent
+  race) -- driver codes get reused across eras (VER is both Verstappen today and Vergne in
+  2012-2014), so showing one by code alone on an older replay risks the wrong face on the wrong row.
+  Team badges aren't era-restricted (a constructor id doesn't collide like that) and show everywhere.
+  (An earlier version of this lived at webapp/images.py, resolving photos live from Wikipedia on
+  every page load -- removed after repeatedly proving unreliable: a hostname the API returns that
+  doesn't actually serve the file, rate limits, cache staleness. A file that's just there can't have
+  those problems.)
 - Assistant tab (agentic): a Claude agent with read-only tools over the same model and feature table.
   Needs ANTHROPIC_API_KEY; the rest of the site works without it.
 - News tab: RSS from Formula1.com, Motorsport.com and BBC Sport (Autosport's feed currently answers
