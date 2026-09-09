@@ -43,7 +43,8 @@ class AutoUpdateScheduler:
 
         self.state = "idle"  # idle | checking | retraining
         self.last_checked = None
-        self.last_retrained = None
+        self.last_data_refresh = None  # new races published (precedes the retrain)
+        self.last_retrained = None     # model rebuilt from them (much later)
         self.last_error = None
 
     def start(self) -> None:
@@ -57,6 +58,7 @@ class AutoUpdateScheduler:
         return {
             "state": self.state,
             "last_checked": self.last_checked,
+            "last_data_refresh": self.last_data_refresh,
             "last_retrained": self.last_retrained,
             "last_error": self.last_error,
             "check_interval_seconds": CHECK_INTERVAL_SECONDS,
@@ -96,6 +98,17 @@ class AutoUpdateScheduler:
                 self.state = "idle"
                 return {"ok": True, "changed": False}
 
+            # Publish the new race data NOW, before the ~20-30 minute
+            # retrain rather than after it. The rows are already on disk;
+            # gating them behind training means the site reports a stale
+            # cutoff and predicts on last week's standings for half an
+            # hour after a race it has already downloaded. The existing
+            # model applies perfectly well to fresher features -- it just
+            # hasn't learned from the new race yet, which the retrain
+            # below fixes on its own schedule.
+            self.rebuild_service()
+            self.last_data_refresh = time.time()
+
             self._retrain()
             return {"ok": self.last_error is None, "changed": True}
         except Exception as exc:
@@ -129,6 +142,9 @@ class AutoUpdateScheduler:
 
         os.replace(tmp_path, self.model_store.path)
         reload_ok = self.model_store.reload()
+        # reload() swaps the model in place on the shared ModelStore, so
+        # every existing component already sees it; this rebuild is for the
+        # cached feature tables, which were built before the retrain.
         self.rebuild_service()
         self.last_error = None if reload_ok else self.model_store.error
         self.last_retrained = time.time()
