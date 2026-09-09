@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import analytics
 import pipeline
 from webapp.agent import RaceAnalyst
 from webapp.live_data import LiveData
@@ -239,6 +240,35 @@ def auto_update_check_now(force: bool = False):
         return {"started": False, "reason": "busy", "state": auto_update.state}
     threading.Thread(target=auto_update.check_now, kwargs={"force": force}, daemon=True).start()
     return {"started": True}
+
+
+@app.get("/api/analytics")
+def get_analytics(year: int = None):
+    """EDA over the exact features the model consumes, for one season.
+
+    Reuses PredictionService's already-cached feature table rather than
+    rebuilding the timeline -- analytics.compute() is a pure aggregation
+    over a frame it's handed, so the page and the notebook can run the
+    same function over the same features and can't disagree.
+    """
+    features = service.known_features()
+    seasons = sorted({int(value) for value in features["year"].dropna().unique()}, reverse=True)
+    if not seasons:
+        raise HTTPException(status_code=404, detail="No seasons available to analyse.")
+
+    target_year = int(year) if year is not None else seasons[0]
+    if target_year not in seasons:
+        raise HTTPException(status_code=404, detail=f"No data for season {target_year}.")
+
+    report = analytics.compute(features[features["year"] == target_year], target_year)
+    report["available_years"] = seasons
+    # Codes/ids are what the frame carries; the UI wants real names.
+    for row in report["by_team"]:
+        row["name"] = reference.team(row["team"])["name"]
+        row["color"] = reference.team(row["team"])["color"]
+    for row in report["by_driver"]:
+        row["name"] = reference.driver(row["driver"])["name"]
+    return report
 
 
 @app.get("/api/news")

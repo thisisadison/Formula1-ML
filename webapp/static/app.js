@@ -25,6 +25,10 @@ const state = {
   newsSources: [],
   newsCategories: [],
   newsFilter: null,
+  analyticsLoaded: false,
+  analytics: null,
+  analyticsYear: null,
+  analyticsFeature: null,
   lastRetrainedAt: null,
   seasonRounds: [],
   seasonYear: null,
@@ -164,6 +168,10 @@ function showTab(name) {
   $$("[data-tab]").forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === name));
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (name === "news" && !state.newsLoaded) loadNews();
+  // Charts are sized in real pixels off their container, so they can only be
+  // laid out once the tab is actually displayed -- hence the load-on-show
+  // here rather than at boot.
+  if (name === "analytics" && !state.analyticsLoaded) loadAnalytics();
 }
 
 $$("[data-tab]").forEach((btn) => {
@@ -804,6 +812,541 @@ async function loadNews() {
   renderNewsFilters();
   renderNewsList();
 }
+
+/* --------------------------------------------------------------- analytics
+ *
+ * Charts are hand-rolled inline SVG -- same stance as the rest of this
+ * frontend: no build step, no charting dependency, nothing to load before
+ * the first paint.
+ *
+ * They are drawn in REAL pixel coordinates measured off the container, not
+ * in a scaled viewBox. A viewBox that stretches to fit would shrink the tick
+ * labels along with the bars, and 9px type at 55% on a phone is unreadable;
+ * re-rendering on resize costs a few milliseconds and keeps text at its
+ * intended size at every width.
+ *
+ * Colour follows the job, not the entity: one hue for every single-series
+ * chart (the categories are already named on the axis, so a second hue would
+ * encode nothing), and a two-hue diverging scale ONLY on the correlation
+ * chart, where the sign genuinely is the message.
+ */
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+const svgEl = (tag, attrs) => {
+  const node = document.createElementNS(SVG_NS, tag);
+  Object.entries(attrs || {}).forEach(([key, value]) => node.setAttribute(key, value));
+  return node;
+};
+
+const pct = (value, digits = 1) =>
+  value === null || value === undefined || Number.isNaN(value)
+    ? "—"
+    : `${(value * 100).toFixed(digits)}%`;
+
+/* A bar with rounded corners on the DATA end only. Rounding the baseline end
+   too (which a plain rect with rx would do) detaches the bar from its axis
+   and makes short bars read as floating pills. */
+function barPath(x, y, width, height, radius, side) {
+  const r = Math.max(0, Math.min(radius, side === "top" ? width / 2 : height / 2,
+                                 side === "top" ? height : width));
+  if (side === "top") {
+    return `M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} ` +
+           `H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`;
+  }
+  if (side === "left") {
+    return `M${x + width},${y} H${x + r} Q${x},${y} ${x},${y + r} ` +
+           `V${y + height - r} Q${x},${y + height} ${x + r},${y + height} H${x + width} Z`;
+  }
+  return `M${x},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} ` +
+         `V${y + height - r} Q${x + width},${y + height} ${x + width - r},${y + height} H${x} Z`;
+}
+
+/* One tooltip element reused by every chart -- attaching a listener per bar is
+   fine, but a node per bar is not. */
+let chartTip = null;
+
+function tipFor(node, lines) {
+  node.addEventListener("mouseenter", (event) => {
+    if (!chartTip) {
+      chartTip = el("div", "charttip");
+      document.body.appendChild(chartTip);
+    }
+    chartTip.innerHTML = "";
+    lines.forEach((line, index) => {
+      chartTip.appendChild(el("div", index === 0 ? "charttip__head" : "charttip__row", line));
+    });
+    chartTip.classList.add("is-on");
+    moveTip(event);
+  });
+  node.addEventListener("mousemove", moveTip);
+  node.addEventListener("mouseleave", () => chartTip && chartTip.classList.remove("is-on"));
+}
+
+function moveTip(event) {
+  if (!chartTip) return;
+  const pad = 14;
+  const box = chartTip.getBoundingClientRect();
+  const x = Math.min(Math.max(pad, event.clientX + pad), window.innerWidth - box.width - pad);
+  const y = Math.max(pad, event.clientY - box.height - pad);
+  chartTip.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function chartWidth(container, fallback = 640) {
+  const width = container.clientWidth;
+  return width > 40 ? width : fallback;
+}
+
+/* ---- correlation: the one genuinely diverging chart on the page ---------- */
+
+function renderCorrelationChart(container, rows) {
+  container.innerHTML = "";
+  const usable = rows.filter((row) => row.correlation !== null);
+  if (!usable.length) return;
+
+  const width = chartWidth(container);
+  const gutter = Math.min(150, Math.max(96, width * 0.3));
+  // On a phone the gutter is too narrow for "Championship position", and an
+  // SVG text node does not wrap or clip -- it just draws past the edge. The
+  // short names the prediction cards already use fit; the tooltip still
+  // carries the full one.
+  const shortLabels = width < 560;
+  const valueGap = 46;
+  const rowHeight = 30;
+  const barHeight = 15;
+  const top = 20;
+  const height = top + usable.length * rowHeight + 8;
+  const plotLeft = gutter + 8;
+  const plotRight = width - valueGap;
+  const centre = (plotLeft + plotRight) / 2;
+  const half = centre - plotLeft;
+  const peak = Math.max(0.5, ...usable.map((row) => Math.abs(row.correlation)));
+
+  const svg = svgEl("svg", { class: "chart", width, height, viewBox: `0 0 ${width} ${height}` });
+  svg.setAttribute("role", "img");
+
+  ["−", "0", "+"].forEach((label, index) => {
+    const x = plotLeft + (half * index);
+    svg.appendChild(svgEl("text", {
+      class: "chart__tick", x, y: 11, "text-anchor": "middle",
+    })).textContent = index === 1 ? "0" : `${label}${peak.toFixed(2)}`;
+  });
+
+  usable.forEach((row, index) => {
+    const y = top + index * rowHeight;
+    const length = (Math.abs(row.correlation) / peak) * half;
+    const negative = row.correlation < 0;
+
+    const label = svgEl("text", {
+      class: "chart__cat", x: gutter, y: y + barHeight - 3, "text-anchor": "end",
+    });
+    label.textContent = shortLabels ? (FEATURE_LABELS[row.feature] || row.label) : row.label;
+    svg.appendChild(label);
+
+    const bar = svgEl("path", {
+      class: "chart__bar",
+      d: barPath(negative ? centre - length : centre, y, length, barHeight, 4,
+                 negative ? "left" : "right"),
+      fill: negative ? "var(--diverge-neg)" : "var(--diverge-pos)",
+    });
+    // The direction that matters to a reader is not the sign but what it
+    // means, so the tooltip states it in words rather than leaving them to
+    // remember that lower championship position is better.
+    const helps = row.lower_is_better ? row.correlation < 0 : row.correlation > 0;
+    tipFor(bar, [
+      row.label,
+      `Correlation with scoring  ${row.correlation.toFixed(3)}`,
+      helps
+        ? `${row.lower_is_better ? "Lower" : "Higher"} values score more often`
+        : `${row.lower_is_better ? "Lower" : "Higher"} values score less often`,
+      `${row.coverage} entries with a value`,
+    ]);
+    svg.appendChild(bar);
+
+    const value = svgEl("text", {
+      class: "chart__value", x: width - 4, y: y + barHeight - 3, "text-anchor": "end",
+    });
+    value.textContent = row.correlation.toFixed(2);
+    svg.appendChild(value);
+  });
+
+  svg.appendChild(svgEl("line", {
+    class: "chart__axis", x1: centre, y1: top - 6, x2: centre, y2: height - 6,
+  }));
+
+  container.appendChild(svg);
+
+  const legend = el("div", "legend");
+  [["var(--diverge-neg)", "Negative — a lower value goes with scoring"],
+   ["var(--diverge-pos)", "Positive — a higher value goes with scoring"]].forEach(([color, text]) => {
+    const item = el("div", "legend__item");
+    const swatch = el("span", "legend__swatch");
+    swatch.style.background = color;
+    item.appendChild(swatch);
+    item.appendChild(el("span", null, text));
+    legend.appendChild(item);
+  });
+  container.appendChild(legend);
+}
+
+/* ---- points-finish rate across one feature's range ---------------------- */
+
+function renderBucketChart(container, entry) {
+  container.innerHTML = "";
+  if (!entry || !entry.labels.length) {
+    container.appendChild(el("p", "footnote", "Not enough variation in this feature to split the season into groups."));
+    return;
+  }
+
+  const width = chartWidth(container);
+  const height = 236;
+  const padTop = 16;
+  const padBottom = 44;
+  const padLeft = 38;
+  const plotWidth = width - padLeft - 8;
+  const plotHeight = height - padTop - padBottom;
+  const count = entry.labels.length;
+  const band = plotWidth / count;
+  const barWidth = Math.max(10, Math.min(78, band - 14));
+
+  const svg = svgEl("svg", { class: "chart", width, height, viewBox: `0 0 ${width} ${height}` });
+
+  [0, 0.25, 0.5, 0.75, 1].forEach((fraction) => {
+    const y = padTop + plotHeight * (1 - fraction);
+    svg.appendChild(svgEl("line", {
+      class: "chart__grid", x1: padLeft, y1: y, x2: width - 8, y2: y,
+    }));
+    const tick = svgEl("text", { class: "chart__tick", x: padLeft - 8, y: y + 3, "text-anchor": "end" });
+    tick.textContent = `${Math.round(fraction * 100)}%`;
+    svg.appendChild(tick);
+  });
+
+  entry.labels.forEach((label, index) => {
+    const rate = entry.rates[index];
+    const x = padLeft + band * index + (band - barWidth) / 2;
+    const barHeight = Math.max(2, plotHeight * rate);
+    const y = padTop + plotHeight - barHeight;
+
+    const bar = svgEl("path", {
+      class: "chart__bar",
+      d: barPath(x, y, barWidth, barHeight, 4, "top"),
+      fill: "var(--series-1)",
+    });
+    tipFor(bar, [
+      `${entry.label}: ${label}`,
+      `Scored in ${pct(rate)} of entries`,
+      `${entry.counts[index]} entries in this group`,
+    ]);
+    svg.appendChild(bar);
+
+    const value = svgEl("text", {
+      class: "chart__value", x: x + barWidth / 2, y: y - 6, "text-anchor": "middle",
+    });
+    value.textContent = pct(rate, 0);
+    svg.appendChild(value);
+
+    const cat = svgEl("text", {
+      class: "chart__cat", x: padLeft + band * index + band / 2,
+      y: height - padBottom + 18, "text-anchor": "middle",
+    });
+    cat.textContent = label;
+    svg.appendChild(cat);
+
+    const n = svgEl("text", {
+      class: "chart__tick", x: padLeft + band * index + band / 2,
+      y: height - padBottom + 32, "text-anchor": "middle",
+    });
+    n.textContent = `n=${entry.counts[index]}`;
+    svg.appendChild(n);
+  });
+
+  svg.appendChild(svgEl("line", {
+    class: "chart__axis", x1: padLeft, y1: padTop + plotHeight, x2: width - 8, y2: padTop + plotHeight,
+  }));
+  container.appendChild(svg);
+
+  const direction = entry.lower_is_better
+    ? "Groups run from the best (lowest) values on the left to the worst on the right."
+    : "Groups run from the lowest values on the left to the highest on the right.";
+  container.appendChild(el("p", "footnote", direction));
+}
+
+/* ---- distributions, as small multiples ---------------------------------- */
+
+function renderDistributions(container, distributions, missingness) {
+  container.innerHTML = "";
+  const missingByFeature = Object.fromEntries(missingness.map((row) => [row.feature, row]));
+
+  // Two passes on purpose. An auto-fit grid gives its first child the whole
+  // row until siblings arrive, so measuring a cell as it is appended reads a
+  // width the cell will not keep -- and an SVG sized to a stale width gets
+  // letterboxed down by preserveAspectRatio, shrinking that one chart and its
+  // labels. Build every cell, then measure.
+  const cells = distributions
+    .filter((entry) => entry.counts.length)
+    .map((entry) => {
+      const cell = el("div", "smallmultiple");
+      cell.appendChild(el("div", "smallmultiple__title", entry.label));
+
+      const gap = missingByFeature[entry.feature];
+      const total = entry.counts.reduce((sum, value) => sum + value, 0);
+      cell.appendChild(el("div", "smallmultiple__meta",
+        gap && gap.missing
+          ? `${total} entries · ${pct(gap.missing_pct, 0)} missing`
+          : `${total} entries`));
+
+      const plot = el("div");
+      cell.appendChild(plot);
+      container.appendChild(cell);
+      return { entry, plot };
+    });
+
+  cells.forEach(({ entry, plot }) => {
+    const width = chartWidth(plot, 240);
+    const height = 112;
+    const padTop = 8;
+    const padBottom = 26;
+    const plotHeight = height - padTop - padBottom;
+    const band = width / entry.counts.length;
+    // 2px surface gap between bars; capped so a two-state flag draws as a pair
+    // of bars rather than two half-page slabs.
+    const barWidth = Math.max(3, Math.min(64, band - 2));
+    const peak = Math.max(...entry.counts) || 1;
+
+    const svg = svgEl("svg", { class: "chart", width, height, viewBox: `0 0 ${width} ${height}` });
+    entry.counts.forEach((count, index) => {
+      const barHeight = Math.max(1.5, plotHeight * (count / peak));
+      const x = band * index + (band - barWidth) / 2;
+      const y = padTop + plotHeight - barHeight;
+      const bar = svgEl("path", {
+        class: "chart__bar",
+        d: barPath(x, y, barWidth, barHeight, 3, "top"),
+        fill: "var(--series-1)",
+      });
+      tipFor(bar, [entry.label, `${entry.bins[index]}`, `${count} entries`]);
+      svg.appendChild(bar);
+    });
+    svg.appendChild(svgEl("line", {
+      class: "chart__axis", x1: 0, y1: padTop + plotHeight, x2: width, y2: padTop + plotHeight,
+    }));
+
+    // Only the two ends are labelled: a tick under every bin collides at this
+    // width, and the tooltip carries the exact range anyway.
+    const ends = [[entry.bins[0], 0, "start"], [entry.bins[entry.bins.length - 1], width, "end"]];
+    ends.forEach(([label, x, anchor]) => {
+      const tick = svgEl("text", {
+        class: "chart__tick", x, y: height - padBottom + 16, "text-anchor": anchor,
+      });
+      tick.textContent = label;
+      svg.appendChild(tick);
+    });
+    plot.appendChild(svg);
+  });
+}
+
+/* ---- points-finish rate by team ----------------------------------------- */
+
+function renderTeamChart(container, rows) {
+  container.innerHTML = "";
+  if (!rows.length) return;
+
+  const width = chartWidth(container);
+  const gutter = Math.min(150, Math.max(92, width * 0.28));
+  const valueGap = 52;
+  const rowHeight = 26;
+  const barHeight = 13;
+  const height = rows.length * rowHeight + 10;
+  const plotLeft = gutter + 8;
+  const plotWidth = width - plotLeft - valueGap;
+
+  const svg = svgEl("svg", { class: "chart", width, height, viewBox: `0 0 ${width} ${height}` });
+
+  rows.forEach((row, index) => {
+    const y = index * rowHeight + 5;
+    const label = svgEl("text", {
+      class: "chart__cat", x: gutter, y: y + barHeight - 2, "text-anchor": "end",
+    });
+    label.textContent = row.name;
+    svg.appendChild(label);
+
+    const length = Math.max(2, plotWidth * row.rate);
+    // One series, and the team is already named on the axis -- painting each
+    // bar in its team colour would be decoration that encodes nothing.
+    const bar = svgEl("path", {
+      class: "chart__bar",
+      d: barPath(plotLeft, y, length, barHeight, 4, "right"),
+      fill: "var(--series-1)",
+    });
+    tipFor(bar, [
+      row.name,
+      `Scored in ${pct(row.rate)} of entries`,
+      `${row.scores} of ${row.entries} classified finishes`,
+    ]);
+    svg.appendChild(bar);
+
+    const value = svgEl("text", {
+      class: "chart__value", x: width - 4, y: y + barHeight - 2, "text-anchor": "end",
+    });
+    value.textContent = `${pct(row.rate, 0)} (${row.scores}/${row.entries})`;
+    svg.appendChild(value);
+  });
+
+  svg.appendChild(svgEl("line", {
+    class: "chart__axis", x1: plotLeft, y1: 0, x2: plotLeft, y2: height,
+  }));
+  container.appendChild(svg);
+}
+
+/* ---- coverage, as plain DOM (a bar per row needs no SVG) ---------------- */
+
+function renderCoverage(container, missingness, total) {
+  container.innerHTML = "";
+  const box = el("div", "coverage");
+  missingness.forEach((row) => {
+    const line = el("div", "coverage__row");
+    line.appendChild(el("div", "coverage__label", row.label));
+    const track = el("div", "coverage__track");
+    const fill = el("div", "coverage__fill");
+    fill.style.width = `${(1 - row.missing_pct) * 100}%`;
+    track.appendChild(fill);
+    line.appendChild(track);
+    line.appendChild(el("div", "coverage__value",
+      row.missing ? `${pct(1 - row.missing_pct, 0)}` : "100%"));
+    line.title = `${total - row.missing} of ${total} entries have a value`;
+    box.appendChild(line);
+  });
+  container.appendChild(box);
+}
+
+/* ---- cards, chips, and the page as a whole ------------------------------ */
+
+function renderStatCards(report) {
+  const box = $("#analytics-cards");
+  box.innerHTML = "";
+  const head = report.headline;
+  const lead = report.correlations.find((row) => row.correlation !== null);
+  const cards = [
+    ["Races run", head.races, `${report.year} season`, true],
+    ["Points rate", pct(head.points_rate), `${head.points_finishes} of ${head.classified}`, true],
+    ["Entries", head.entries, "driver–race rows"],
+    ["Drivers", head.drivers, `${head.rookies} rookies`],
+    ["Teams", head.teams, "on the grid"],
+    ["Points finishes", head.points_finishes, "top-10 results"],
+    ["Strongest signal", lead ? Math.abs(lead.correlation).toFixed(2) : "—",
+     lead ? lead.label : "no usable feature"],
+    ["Model inputs", report.correlations.length, "per entry"],
+  ];
+  // Only worth a card when there is something in it: the live feed classifies
+  // every entrant, retirements included, so recent seasons have none at all.
+  // It replaces the input count rather than adding a ninth card -- the grid is
+  // laid out for exactly eight.
+  if (head.dnf_or_unclassified) {
+    cards[cards.length - 1] = ["Unclassified", head.dnf_or_unclassified, "excluded from rates"];
+  }
+  cards.forEach(([label, value, foot, lead]) => {
+    const card = el("div", `statcard${lead ? " statcard--lead" : ""}`);
+    card.appendChild(el("div", "statcard__label", label));
+    card.appendChild(el("div", "statcard__value", String(value)));
+    card.appendChild(el("div", "statcard__foot", foot));
+    box.appendChild(card);
+  });
+}
+
+function renderAnalyticsChips(report) {
+  const years = $("#analytics-years");
+  years.innerHTML = "";
+  report.available_years.slice(0, 12).forEach((year) => {
+    const chip = el("button", "chip", String(year));
+    chip.classList.toggle("is-active", year === report.year);
+    chip.addEventListener("click", () => loadAnalytics(year));
+    years.appendChild(chip);
+  });
+
+  const features = $("#analytics-feature-chips");
+  features.innerHTML = "";
+  report.rate_by_bucket.forEach((entry) => {
+    const chip = el("button", "chip", entry.label);
+    chip.classList.toggle("is-active", entry.feature === state.analyticsFeature);
+    chip.addEventListener("click", () => {
+      state.analyticsFeature = entry.feature;
+      $$("#analytics-feature-chips .chip").forEach((other) => other.classList.remove("is-active"));
+      chip.classList.add("is-active");
+      renderBucketChart($("#chart-bucket"), entry);
+    });
+    features.appendChild(chip);
+  });
+}
+
+function renderAnalytics() {
+  const report = state.analytics;
+  if (!report) return;
+
+  $("#analytics-sub").textContent =
+    `Exploratory analysis of the ${report.correlations.length} inputs the model reads, ` +
+    `over the ${report.year} season only. Older seasons ran different cars, rules and grids, ` +
+    `so they say little about the next race.`;
+
+  renderStatCards(report);
+  renderAnalyticsChips(report);
+  renderCorrelationChart($("#chart-correlation"), report.correlations);
+  renderBucketChart(
+    $("#chart-bucket"),
+    report.rate_by_bucket.find((entry) => entry.feature === state.analyticsFeature),
+  );
+  renderDistributions($("#chart-distributions"), report.distributions, report.missingness);
+  renderTeamChart($("#chart-teams"), report.by_team);
+  renderCoverage($("#analytics-coverage"), report.missingness, report.headline.entries);
+
+  $("#analytics-footnote").textContent =
+    "Every value here is read from the same feature table the model is trained and scored on — " +
+    "computed by pipeline.py, aggregated by analytics.py, which the project notebook imports too. " +
+    "Each feature is built from races BEFORE the one it describes (expanding means and rolling " +
+    "windows are shifted by one race), so nothing on this page can see a result it is meant to predict. " +
+    "Rates exclude DNFs and unclassified finishes.";
+}
+
+async function loadAnalytics(year) {
+  const notice = $("#analytics-notice");
+  const cards = $("#analytics-cards");
+  cards.innerHTML = "";
+  for (let i = 0; i < 4; i += 1) {
+    const skeleton = el("div", "skeleton");
+    skeleton.style.height = "92px";
+    cards.appendChild(skeleton);
+  }
+
+  let report;
+  try {
+    report = await api(`/api/analytics${year ? `?year=${year}` : ""}`);
+  } catch (error) {
+    cards.innerHTML = "";
+    notice.className = "notice notice--bad";
+    notice.textContent = `Could not load analytics: ${error.message}`;
+    return;
+  }
+
+  notice.className = "notice is-hidden";
+  state.analyticsLoaded = true;
+  state.analytics = report;
+  state.analyticsYear = report.year;
+  // Default to the feature that separates scorers most strongly this season,
+  // so the panel opens on the chart worth looking at rather than on whichever
+  // feature happens to be first in the list.
+  const strongest = report.correlations.find((row) => row.correlation !== null);
+  if (!report.rate_by_bucket.some((entry) => entry.feature === state.analyticsFeature)) {
+    state.analyticsFeature = strongest ? strongest.feature : report.rate_by_bucket[0].feature;
+  }
+  renderAnalytics();
+}
+
+// Pixel-sized charts have to be redrawn when the box they were measured
+// against changes; debounced so a drag-resize doesn't rebuild them per frame.
+let analyticsResizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!state.analytics || !$("#tab-analytics").classList.contains("is-active")) return;
+  clearTimeout(analyticsResizeTimer);
+  analyticsResizeTimer = setTimeout(renderAnalytics, 180);
+});
 
 /* -------------------------------------------------------------------- boot */
 

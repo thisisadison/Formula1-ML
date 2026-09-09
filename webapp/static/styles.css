@@ -1021,6 +1021,161 @@ a { color: inherit; text-decoration: none; }
 }
 @keyframes shimmer { to { background-position: -240% 0; } }
 
+/* ------------------------------------------------------------- analytics */
+
+/* Chart ink and series colours. Validated against THIS app's surface
+   (#131316), not a reference one: slot-1 blue vs the diverging red measure
+   CVD dE 19.2 / normal-vision 29.0, both clear of the 8 / 15 floors. */
+:root {
+  --series-1:   #3987e5;   /* single-series bars, histograms */
+  --diverge-neg: #e66767;  /* diverging arm: correlation < 0 */
+  --diverge-pos: #3987e5;  /* diverging arm: correlation > 0 */
+  --chart-muted: #898781;  /* axis + tick labels */
+  --chart-grid:  #2c2c2a;  /* hairline gridlines */
+  --chart-axis:  #383835;  /* baseline / zero rule */
+}
+
+/* Fixed column counts, not auto-fit: there are always eight cards, and
+   auto-fit packs seven onto a wide row and orphans the eighth. Two clean
+   rows of four read as a block; 7+1 reads as a mistake. */
+.statcards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0 6px;
+}
+@media (min-width: 560px)  { .statcards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1040px) { .statcards { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+
+.statcard {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 15px 15px;
+  transition: border-color 0.25s var(--ease);
+}
+.statcard:hover { border-color: var(--line-strong); }
+.statcard--lead { border-color: var(--line-strong); background: var(--surface); }
+
+.statcard__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statcard__label .dot { width: 6px; height: 6px; }
+
+.statcard__value {
+  margin-top: 9px;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.statcard__foot { margin-top: 3px; font-size: 11px; color: var(--text-faint); }
+
+.panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 17px 18px 19px;
+  margin: 14px 0 0;
+}
+.panel__head { margin-bottom: 14px; }
+.panel__title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.015em; }
+.panel__sub {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  max-width: 78ch;
+}
+
+.smallmultiples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(228px, 1fr));
+  gap: 16px 18px;
+}
+.smallmultiple__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.smallmultiple__meta { font-size: 11px; color: var(--text-faint); margin-bottom: 6px; }
+
+/* Charts are inline SVG -- no charting library, matching the rest of the
+   app's no-build-step, no-dependency frontend. */
+.chart { width: 100%; display: block; overflow: visible; }
+.chart text { font-family: var(--font); fill: var(--chart-muted); }
+.chart .chart__grid { stroke: var(--chart-grid); stroke-width: 1; }
+.chart .chart__axis { stroke: var(--chart-axis); stroke-width: 1; }
+.chart .chart__tick { font-size: 9.5px; fill: var(--chart-muted); }
+.chart .chart__value { font-size: 10px; fill: var(--text); font-variant-numeric: tabular-nums; }
+.chart .chart__cat { font-size: 10.5px; fill: var(--text-dim); }
+.chart .chart__bar { transition: opacity 0.15s var(--ease); }
+.chart .chart__bar:hover { opacity: 0.78; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 2px 0 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.legend__swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+
+/* One shared tooltip node, positioned with a transform so moving it never
+   triggers layout. Pointer-events off, or it would flicker under the cursor. */
+.charttip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+  max-width: 280px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong);
+  background: rgba(24, 24, 27, 0.96);
+  backdrop-filter: saturate(160%) blur(14px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.charttip.is-on { opacity: 1; }
+.charttip__head { font-weight: 650; color: var(--text); margin-bottom: 2px; }
+.charttip__row { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+.coverage { display: grid; gap: 1px; background: var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.coverage__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) 1fr 64px;
+  gap: 12px;
+  align-items: center;
+  background: var(--bg-elevated);
+  padding: 9px 12px;
+  font-size: 12.5px;
+}
+.coverage__label { color: var(--text); }
+.coverage__track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.coverage__fill { height: 100%; border-radius: 3px; background: var(--series-1); }
+.coverage__value { text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+@media (max-width: 560px) {
+  .statcard__value { font-size: 23px; }
+  .coverage__row { grid-template-columns: minmax(96px, 1.3fr) 1fr 54px; font-size: 11.5px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
