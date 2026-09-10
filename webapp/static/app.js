@@ -246,13 +246,13 @@ async function loadStatus() {
 
 /* ------------------------------------------------------------- predictions */
 
-// Local files only -- see webapp/static/photos/README.md for naming. No
-// live lookup: a bundled file can't return a dead host or a poisoned
-// cache, and a missing one just 404s, which onerror below treats the
-// same as "no photo" always has -- fall back to the monogram / no badge.
-const driverPhotoUrl = (code) => `/photos/drivers/${code}.jpg`;
-const teamPhotoUrl = (teamId) => `/photos/teams/${teamId}.png`;
-
+// Photo URLs are resolved server-side (webapp/photos.py) and arrive on the
+// driver/team objects, rather than being built here by naming convention.
+// The frontend can't know whether a bundled file is VER.jpg,
+// max_verstappen.JPG or neither, so it doesn't guess: a null photo means
+// no file matched, and the monogram / bare team name stands in. The
+// onerror path below still exists as a backstop for a file that exists but
+// won't decode.
 function localPhoto(src, className) {
   const img = el("img", className);
   img.alt = "";
@@ -273,8 +273,8 @@ function avatarFor(driver, team, showDriverPhoto) {
   const avatar = el("div", "avatar");
   avatar.style.background = `linear-gradient(150deg, ${team.color}, ${team.color}55)`;
   avatar.appendChild(el("span", null, driver.code));
-  if (showDriverPhoto && driver.code) {
-    avatar.appendChild(localPhoto(driverPhotoUrl(driver.code)));
+  if (showDriverPhoto && driver.photo) {
+    avatar.appendChild(localPhoto(driver.photo));
   }
   return avatar;
 }
@@ -310,7 +310,9 @@ function driverCard(row, index, showActual, showDriverPhoto) {
   const who = el("div", "card__who");
   who.appendChild(el("div", "card__name", row.driver.name));
   const teamRow = el("div", "card__team");
-  teamRow.appendChild(localPhoto(teamPhotoUrl(row.team.id), "card__team-badge"));
+  if (row.team.photo) {
+    teamRow.appendChild(localPhoto(row.team.photo, "card__team-badge"));
+  }
   teamRow.appendChild(el("span", null, row.team.name));
   who.appendChild(teamRow);
   main.appendChild(who);
@@ -351,25 +353,36 @@ function driverCard(row, index, showActual, showDriverPhoto) {
 
   const detail = el("div", "card__detail");
   const inner = el("div");
-  // A large photo above the stats, only where showDriverPhoto allows one
-  // (see avatarFor's comment) -- the outer .card__detail already slides
-  // the whole panel open (grid-template-rows), so this only needs its own
-  // opacity fade, timed to land just after that, for "appears on top with
-  // a fade transition into the statistics" rather than popping in at once.
-  if (showDriverPhoto) {
-    const photoBanner = el("div", "card__photo");
-    const img = localPhoto(driverPhotoUrl(row.driver.code));
-    // A missing file should remove the whole banner, not leave an empty
-    // gradient box where the (absent) img used to be.
-    img.addEventListener("error", () => photoBanner.remove());
-    photoBanner.appendChild(img);
-    inner.appendChild(photoBanner);
+  const body = el("div", "detailgrid");
+
+  // The photo sits BESIDE the stats, not above them: the stats are only a
+  // two-row block, so a full-width banner pushed them most of a screen
+  // down for no extra information. Only where showDriverPhoto allows one
+  // (see avatarFor's comment). The outer .card__detail already slides the
+  // whole panel open (grid-template-rows), so the photo only needs its own
+  // opacity fade, timed to land just after that, rather than popping in.
+  if (showDriverPhoto && row.driver.photo) {
+    const photo = el("div", "card__photo");
+    const img = localPhoto(row.driver.photo);
+    // A missing file has to collapse the whole column, not just the img --
+    // otherwise the stats stay squashed into the right-hand track beside a
+    // 220px gradient placeholder.
+    img.addEventListener("error", () => {
+      photo.remove();
+      body.classList.add("detailgrid--nophoto");
+    });
+    photo.appendChild(img);
+    body.appendChild(photo);
+  } else {
+    body.classList.add("detailgrid--nophoto");
   }
+
   const features = el("div", "features");
   Object.entries(row.features).forEach(([key, value]) => {
     features.appendChild(featureBlock(key, value));
   });
-  inner.appendChild(features);
+  body.appendChild(features);
+  inner.appendChild(body);
   detail.appendChild(inner);
   card.appendChild(detail);
 

@@ -8,16 +8,35 @@ that depended on a third-party API returning a working URL on every
 request, which repeatedly didn't (bad host, dead cache, wrong hostname).
 A file that's just *there* can't have that problem.
 
-## Naming (exact, case-sensitive)
+## Naming
 
-- `drivers/<CODE>.jpg` -- the driver's 3-letter code as shown in the UI
-  (VER, NOR, HAM, PIA, LEC, RUS, ...). Landscape or portrait both work;
-  the frontend crops to fit. Missing files are fine -- the driver falls
-  back to their colored initials, no broken-image icon.
-- `teams/<id>.png` -- the constructor id (red_bull, mclaren, ferrari,
-  mercedes, aston_martin, alpine, williams, rb, sauber, alfa, haas,
-  cadillac, audi, ...). PNG so a transparent-background logo works;
-  missing files fall back to no badge.
+Name a file after the driver or the team and it will be found --
+`webapp/photos.py` scans these directories and matches on a normalised
+key, so all of these work and none of them need a code change:
+
+- `drivers/max_verstappen.JPG`, `drivers/Max Verstappen.jpg`,
+  `drivers/VER.jpg` -- full name, surname alone, or the 3-letter code.
+- Any of `.jpg .jpeg .png .webp .avif`, upper or lower case.
+- Accents and umlauts are folded, so `nico_hulkenberg.JPG` matches
+  "Nico Hülkenberg" and `sergio_perez.JPG` matches "Sergio Pérez".
+- A surname on its own is enough, which is what rescues a file whose
+  forename is spelled differently from the grid entry
+  (`kimi_antonelli.JPG` for "Andrea Kimi Antonelli", `alex_albon.JPG`
+  for "Alexander Albon", and even a typo like `valterri_bottas.JPG`).
+
+Teams work the same way, matched on constructor id or team name:
+`teams/red_bull.png`, `teams/Red Bull Racing.png`. PNG so a
+transparent-background logo works.
+
+Full names beat surnames, so two drivers sharing a surname resolve
+correctly as long as both files carry a full name.
+
+Landscape or portrait both work -- the frontend crops to fit. Missing
+files are fine and cost nothing: no file matched means no request is
+made at all, and the driver falls back to their coloured initials.
+
+Drop a new file in and it appears on the next request -- the index
+re-reads itself whenever the directory changes, no restart needed.
 
 ## Why photos only show on the most recent / next race
 

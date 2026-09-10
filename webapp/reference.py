@@ -16,6 +16,8 @@ most recently born CSV driver holding that code.
 
 import pandas as pd
 
+from webapp.photos import PhotoIndex, surname
+
 # Codes on the 2023+ grid, including the ones that never appear in
 # driversgit.csv (it stops at 2022) and the ones that would otherwise
 # resolve to a same-code driver from an earlier era.
@@ -130,6 +132,8 @@ class Reference:
         self._drivers = self._build_driver_directory(raw["drivers"])
         self._team_names = {}  # filled by augment() from the live roster
         self._circuit_names_by_numeric_id = self._build_circuit_directory(raw["races"])
+        self._driver_photos = PhotoIndex("drivers")
+        self._team_photos = PhotoIndex("teams")
 
     @staticmethod
     def _build_driver_directory(drivers: pd.DataFrame) -> dict:
@@ -183,16 +187,25 @@ class Reference:
     def driver(self, code: str) -> dict:
         info = self._drivers.get(code)
         if info is None:
-            return {"code": code, "name": code, "nationality": None, "wiki_url": None}
-        return {"code": code, **info}
+            return {"code": code, "name": code, "nationality": None,
+                    "wiki_url": None, "photo": self._driver_photo(code, code)}
+        return {"code": code, **info, "photo": self._driver_photo(code, info["name"])}
+
+    def _driver_photo(self, code: str, name: str) -> str:
+        # Full name first, then surname, then code -- most specific wins, so
+        # a file named for one Magnussen can't answer for the other unless
+        # surname is all either file gives us. See webapp/photos.py.
+        return self._driver_photos.lookup(name, surname(name), code)
 
     def team(self, constructor_id) -> dict:
         key = str(constructor_id)
         if key in TEAMS:
             name, color = TEAMS[key]
-            return {"id": key, "name": name, "color": color}
+            return {"id": key, "name": name, "color": color,
+                    "photo": self._team_photos.lookup(key, name)}
         name = self._team_names.get(key, key.replace("_", " ").title())
-        return {"id": key, "name": name, "color": _fallback_team_color(key)}
+        return {"id": key, "name": name, "color": _fallback_team_color(key),
+                "photo": self._team_photos.lookup(key, name)}
 
     def circuit(self, circuit_id) -> dict:
         key = str(circuit_id)
