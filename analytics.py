@@ -54,6 +54,11 @@ LOWER_IS_BETTER = {
 HISTOGRAM_BINS = 12
 BUCKET_COUNT = 5
 
+# Named states for the one binary feature, keyed by its raw 0/1 value -- used
+# everywhere a chart would otherwise print the ambiguous "No"/"Yes" (which
+# reads as "no" to WHAT unless you already know the column name).
+BINARY_LABELS = {"is_rookie": {0: "Non-rookie", 1: "Rookie"}}
+
 
 def build_season_frame(data_dir: str = "data", year: int = None):
     """Feature frame for one season, built the same way the model's training
@@ -98,11 +103,11 @@ def _histogram(values: pd.Series, feature: str = "") -> dict:
         return {"bins": [], "counts": []}
     if clean.nunique() <= 2:  # is_rookie and anything else effectively binary
         counts = clean.value_counts().sort_index()
-        # A 0/1 flag reads as a quantity on an axis; name the two states so a
-        # reader doesn't have to know which way the encoding runs.
-        binary = feature in ("is_rookie",)
+        # A 0/1 flag reads as a quantity on an axis; name the two states
+        # concretely (not "Yes"/"No") so a chart never needs a caption to
+        # say which value means what.
         return {
-            "bins": [("Yes" if value else "No") if binary else f"{value:g}"
+            "bins": [BINARY_LABELS.get(feature, {}).get(value, f"{value:g}")
                      for value in counts.index],
             "counts": [int(count) for count in counts.values],
         }
@@ -130,7 +135,7 @@ def _rate_by_bucket(frame: pd.DataFrame, feature: str) -> dict:
     if distinct <= 2:
         grouped = usable.groupby(feature)["scored"]
         return {
-            "labels": [("Yes" if value else "No") if feature == "is_rookie" else f"{value:g}"
+            "labels": [BINARY_LABELS.get(feature, {}).get(value, f"{value:g}")
                        for value in grouped.mean().index],
             "rates": [round(float(rate), 4) for rate in grouped.mean().values],
             "counts": [int(count) for count in grouped.size().values],
@@ -175,7 +180,12 @@ def _missingness(frame: pd.DataFrame) -> list:
     """Which features are actually populated this season. A rookie has no
     circuit history and no prior-3-race form, so these are legitimately NaN
     rather than broken -- but the reader should see how much of the season
-    the model is imputing before trusting a feature's chart."""
+    the model is imputing before trusting a feature's chart.
+
+    Every row is still returned (nothing here is dropped) -- most features
+    run at 100% most seasons, and it's the UI's job to decide whether a
+    fully-covered row is worth a chart or just a one-line mention, not
+    this function's."""
     total = len(frame)
     return [{
         "feature": feature,
@@ -191,11 +201,19 @@ def _by_team(frame: pd.DataFrame) -> list:
     if usable.empty:
         return []
     grouped = usable.groupby("constructorId")["scored"]
+    total_scores = int(grouped.sum().sum())
     rows = [{
         "team": str(team),
         "rate": round(float(rate), 4),
         "entries": int(grouped.size()[team]),
         "scores": int(grouped.sum()[team]),
+        # Share of the season's total points-finishes, not of this team's own
+        # entries -- a different question from "rate" (how good is this team
+        # per opportunity) that "who is actually racking up the points"
+        # answers, and the two can rank teams differently when field sizes
+        # differ (a two-car team can't out-total a stronger one at the same
+        # rate).
+        "share": round(int(grouped.sum()[team]) / total_scores, 4) if total_scores else 0.0,
     } for team, rate in grouped.mean().items()]
     rows.sort(key=lambda row: row["rate"], reverse=True)
     return rows
@@ -215,6 +233,41 @@ def _by_driver(frame: pd.DataFrame) -> list:
     } for driver, rate in grouped.mean().items()]
     rows.sort(key=lambda row: (row["scores"], row["rate"]), reverse=True)
     return rows
+
+
+def _experience_trend(frame: pd.DataFrame) -> dict:
+    """Cumulative points-finish rate through each round, rookies vs everyone
+    else -- does a rookie season actually improve as the year goes on, or is
+    the gap to the established grid roughly constant?
+
+    Cumulative, not per-round: this season has only 3 rookies, so a single
+    round's rate jumps between 0%, 33% and 100% on 3 results and says
+    nothing. Rate-to-date over a growing sample is the only version of this
+    that isn't noise dressed up as a trend."""
+    scored = _scored(frame).astype(float)
+    usable = frame[["round", "is_rookie"]].join(scored.rename("scored"))
+    usable = usable.dropna(subset=["round", "scored"])
+    if usable.empty:
+        return {"rounds": [], "rookie_rate": [], "veteran_rate": [], "rookie_entries": []}
+
+    rounds = sorted(int(r) for r in usable["round"].unique())
+    rookie_rate, veteran_rate, rookie_entries = [], [], []
+    for round_num in rounds:
+        so_far = usable[usable["round"] <= round_num]
+        rookies = so_far.loc[so_far["is_rookie"] == 1, "scored"]
+        veterans = so_far.loc[so_far["is_rookie"] == 0, "scored"]
+        rookie_rate.append(round(float(rookies.mean()), 4) if len(rookies) else None)
+        veteran_rate.append(round(float(veterans.mean()), 4) if len(veterans) else None)
+        rookie_entries.append(int(len(rookies)))
+
+    return {
+        "rounds": rounds,
+        "rookie_rate": rookie_rate,
+        "veteran_rate": veteran_rate,
+        # Sample size behind each rookie point, so a reader can see the early
+        # rounds are thinner evidence than the late ones.
+        "rookie_entries": rookie_entries,
+    }
 
 
 def compute(frame: pd.DataFrame, year: int) -> dict:
@@ -253,6 +306,7 @@ def compute(frame: pd.DataFrame, year: int) -> dict:
         "missingness": _missingness(frame),
         "by_team": _by_team(frame),
         "by_driver": _by_driver(frame),
+        "experience_trend": _experience_trend(frame),
     }
 
 

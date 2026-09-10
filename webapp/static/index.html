@@ -129,9 +129,9 @@
         <div class="panel__head">
           <h3 class="panel__title">Which inputs separate a points finish from a non-score</h3>
           <p class="panel__sub">
-            Correlation of each feature with finishing in the points. Bars left of the centre line mean a
-            <i>lower</i> value goes with scoring more often — that's the expected direction for every
-            position- and form-based input, where P1 beats P10.
+            How strongly each input tracks with scoring, from −1 (opposite) to +1 (matching). The colour
+            says which direction helps and is spelled out on every bar and in the legend below — you
+            never have to infer it from the bar's position.
           </p>
         </div>
         <div id="chart-correlation"></div>
@@ -141,9 +141,10 @@
         <div class="panel__head">
           <h3 class="panel__title">Points-finish rate across each feature's range</h3>
           <p class="panel__sub">
-            Drivers split into equal-sized groups by each feature, then the share of each group that
-            scored. A feature that separates cleanly shows a steady climb or fall; a flat row means the
-            model gets little from it this season.
+            Entries split into equal-sized groups by each feature (for the one yes/no feature, into its
+            two actual states), then the share of each group that scored. A feature that separates
+            cleanly shows a steady climb or fall; a flat row means the model gets little from it this
+            season.
           </p>
         </div>
         <div class="picker__label" style="margin-bottom:9px">Feature</div>
@@ -153,27 +154,49 @@
 
       <div class="panel">
         <div class="panel__head">
-          <h3 class="panel__title">Distribution of each feature</h3>
-          <p class="panel__sub">How the season's entries spread across each input the model reads.</p>
+          <h3 class="panel__title">What the grid actually looks like on each input</h3>
+          <p class="panel__sub">
+            Raw shape of each feature this season, before it's linked to any outcome — a sanity check on
+            the chart above it. A lopsided shape here (most of the grid bunched at one end) is exactly
+            what makes a feature's correlation swing on a handful of drivers rather than the whole field.
+          </p>
         </div>
         <div class="smallmultiples" id="chart-distributions"></div>
       </div>
 
       <div class="panel">
         <div class="panel__head">
-          <h3 class="panel__title">Points-finish rate by team</h3>
-          <p class="panel__sub">Share of this season's entries that finished in the points.</p>
+          <h3 class="panel__title">Which team is actually delivering the points</h3>
+          <p class="panel__sub">
+            Two different questions side by side: the bar is a team's <i>strike rate</i> — how often it
+            scores when it has the chance. The donut is its <i>share</i> of every points finish handed out
+            this season — who is actually banking the points, which a two-car team's rate alone won't
+            tell you if a rival fields more cars.
+          </p>
         </div>
-        <div id="chart-teams"></div>
+        <div class="teamsplit">
+          <div id="chart-teams"></div>
+          <div id="chart-team-share"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__head">
+          <h3 class="panel__title">Do rookies close the gap as the season goes on?</h3>
+          <p class="panel__sub" id="trend-sub">
+            Cumulative points-finish rate through each round — rookies vs. everyone else. A single
+            round only has 3 rookie entries, so a per-round rate would swing between 0% and 100% and
+            say nothing; running the average keeps growing the sample as the season plays out.
+          </p>
+        </div>
+        <div id="chart-trend"></div>
       </div>
 
       <div class="panel">
         <div class="panel__head">
           <h3 class="panel__title">Feature coverage</h3>
-          <p class="panel__sub">
-            How much of the season each input is actually populated for. A rookie has no history at a
-            circuit and no prior three races, so those gaps are expected — but the model imputes them,
-            so it's worth knowing how often.
+          <p class="panel__sub" id="coverage-sub">
+            How much of the season each input is actually populated for.
           </p>
         </div>
         <div id="analytics-coverage"></div>

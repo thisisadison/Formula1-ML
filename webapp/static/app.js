@@ -912,7 +912,10 @@ function renderCorrelationChart(container, rows) {
   // carries the full one.
   const shortLabels = width < 560;
   const valueGap = 46;
-  const rowHeight = 30;
+  // Taller than a plain bar row -- there's a second, smaller line of text
+  // under the category label stating in words which way the bar points, so
+  // the chart never depends on a reader remembering a caption.
+  const rowHeight = 38;
   const barHeight = 15;
   const top = 20;
   const height = top + usable.length * rowHeight + 8;
@@ -936,35 +939,50 @@ function renderCorrelationChart(container, rows) {
     const y = top + index * rowHeight;
     const length = (Math.abs(row.correlation) / peak) * half;
     const negative = row.correlation < 0;
+    // Stated directly from the sign, not from lower_is_better -- that field
+    // says whether the direction matches racing intuition (P1 beats P10),
+    // which is a separate, secondary fact from what the data actually shows.
+    // Reading the meaning off "left means lower helps" required remembering
+    // a caption; this puts the same sentence on every single bar.
+    const meaning = negative ? "Lower value, more points" : "Higher value, more points";
+    // The gutter is an SVG viewBox edge, not an overflow:hidden box -- text
+    // anchored past it doesn't get cropped, it's pushed off past x=0 and
+    // disappears entirely. On a narrow screen the on-chart label is
+    // shortened; the tooltip always gets the full sentence.
+    const meaningShort = negative ? "Lower helps" : "Higher helps";
 
     const label = svgEl("text", {
-      class: "chart__cat", x: gutter, y: y + barHeight - 3, "text-anchor": "end",
+      class: "chart__cat", x: gutter, y: y + 10, "text-anchor": "end",
     });
     label.textContent = shortLabels ? (FEATURE_LABELS[row.feature] || row.label) : row.label;
     svg.appendChild(label);
 
+    const meta = svgEl("text", {
+      class: "chart__tick", x: gutter, y: y + 22, "text-anchor": "end",
+    });
+    meta.textContent = shortLabels ? meaningShort : meaning;
+    svg.appendChild(meta);
+
     const bar = svgEl("path", {
       class: "chart__bar",
-      d: barPath(negative ? centre - length : centre, y, length, barHeight, 4,
+      d: barPath(negative ? centre - length : centre, y + 8, length, barHeight, 4,
                  negative ? "left" : "right"),
       fill: negative ? "var(--diverge-neg)" : "var(--diverge-pos)",
     });
-    // The direction that matters to a reader is not the sign but what it
-    // means, so the tooltip states it in words rather than leaving them to
-    // remember that lower championship position is better.
-    const helps = row.lower_is_better ? row.correlation < 0 : row.correlation > 0;
+    const matchesExpectation = row.lower_is_better ? negative : !negative;
     tipFor(bar, [
       row.label,
       `Correlation with scoring  ${row.correlation.toFixed(3)}`,
-      helps
-        ? `${row.lower_is_better ? "Lower" : "Higher"} values score more often`
-        : `${row.lower_is_better ? "Lower" : "Higher"} values score less often`,
+      `${meaning} this season`,
+      matchesExpectation
+        ? "Matches the usual racing logic for this input"
+        : "Runs against the usual racing logic for this input -- worth a second look",
       `${row.coverage} entries with a value`,
     ]);
     svg.appendChild(bar);
 
     const value = svgEl("text", {
-      class: "chart__value", x: width - 4, y: y + barHeight - 3, "text-anchor": "end",
+      class: "chart__value", x: width - 4, y: y + 20, "text-anchor": "end",
     });
     value.textContent = row.correlation.toFixed(2);
     svg.appendChild(value);
@@ -1197,12 +1215,218 @@ function renderTeamChart(container, rows) {
   container.appendChild(svg);
 }
 
+/* ---- share of the season's points finishes, by team (donut) ------------- */
+
+// Ten teams on a donut is a wheel of near-identical slivers with no room for
+// a legend to breathe. Past this many, the tail folds into one "Other" slice
+// -- the reader loses nothing, because a slice that small was never legible
+// on its own anyway.
+const DONUT_MAX_SLICES = 6;
+
+// Share is a magnitude (how big a piece of one whole), not a set of
+// unrelated categories, so this is a sequential ramp -- one hue, light to
+// dark -- rather than a categorical palette. Identity comes from the text
+// label beside each slice, not from the color needing to be unique.
+function donutColor(index, count) {
+  const lightness = count <= 1 ? 45 : 34 + (index * (78 - 34)) / (count - 1);
+  return `hsl(213 62% ${Math.round(lightness)}%)`;
+}
+
+function renderTeamDonut(container, rows) {
+  container.innerHTML = "";
+  if (!rows.length) return;
+
+  const sorted = [...rows].sort((a, b) => b.share - a.share);
+  const top = sorted.slice(0, DONUT_MAX_SLICES);
+  const rest = sorted.slice(DONUT_MAX_SLICES);
+  const slices = rest.length
+    ? [...top, {
+        name: `${rest.length} other team${rest.length === 1 ? "" : "s"}`,
+        share: rest.reduce((sum, row) => sum + row.share, 0),
+        scores: rest.reduce((sum, row) => sum + row.scores, 0),
+        entries: rest.reduce((sum, row) => sum + row.entries, 0),
+      }]
+    : top;
+  const totalScores = rows.reduce((sum, row) => sum + row.scores, 0);
+
+  const size = 172;
+  const stroke = 30;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const wrap = el("div", "donut");
+  const svg = svgEl("svg", { width: size, height: size, viewBox: `0 0 ${size} ${size}` });
+  // Rotated so the sweep starts at 12 o'clock instead of stroke-dasharray's
+  // default 3 o'clock -- the reading direction a pie/donut is expected to use.
+  const group = svgEl("g", { transform: `rotate(-90 ${cx} ${cy})` });
+  svg.appendChild(group);
+
+  let cumulative = 0;
+  const legend = el("div", "donut__legend");
+  slices.forEach((row, index) => {
+    const color = donutColor(index, slices.length);
+    const dash = row.share * circumference;
+    const circle = svgEl("circle", {
+      cx, cy, r: radius,
+      fill: "none",
+      stroke: color,
+      "stroke-width": stroke,
+      "stroke-dasharray": `${dash} ${circumference - dash}`,
+      "stroke-dashoffset": -cumulative,
+    });
+    tipFor(circle, [
+      row.name,
+      `${pct(row.share)} of this season's points finishes`,
+      `${row.scores} of ${totalScores} points finishes`,
+    ]);
+    group.appendChild(circle);
+    cumulative += dash;
+
+    const line = el("div", "donut__row");
+    const swatch = el("span", "legend__swatch");
+    swatch.style.background = color;
+    line.appendChild(swatch);
+    line.appendChild(el("span", null, row.name));
+    line.appendChild(el("b", null, pct(row.share, 0)));
+    legend.appendChild(line);
+  });
+
+  wrap.appendChild(svg);
+  wrap.appendChild(legend);
+  container.appendChild(wrap);
+}
+
+/* ---- rookies vs. the field, cumulative rate through the season (line) --- */
+
+function linePath(points) {
+  return points.map((point, index) => `${index === 0 ? "M" : "L"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+}
+
+function renderTrendChart(container, trend) {
+  container.innerHTML = "";
+  if (!trend.rounds.length) return;
+
+  const width = chartWidth(container);
+  const height = 236;
+  const padTop = 16;
+  const padBottom = 28;
+  const padLeft = 38;
+  const padRight = 10;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const rounds = trend.rounds;
+  const n = rounds.length;
+  const xFor = (index) => padLeft + (n <= 1 ? 0 : (plotWidth * index) / (n - 1));
+  // Fixed 0-100% domain, matching the bucket chart above -- autoscaling to
+  // the data's own tight range would visually exaggerate a ~15-point gap
+  // into something that looks like a canyon.
+  const yFor = (value) => padTop + plotHeight * (1 - value);
+
+  const svg = svgEl("svg", { class: "chart", width, height, viewBox: `0 0 ${width} ${height}` });
+
+  [0, 0.25, 0.5, 0.75, 1].forEach((fraction) => {
+    const y = yFor(fraction);
+    svg.appendChild(svgEl("line", { class: "chart__grid", x1: padLeft, y1: y, x2: width - padRight, y2: y }));
+    const tick = svgEl("text", { class: "chart__tick", x: padLeft - 8, y: y + 3, "text-anchor": "end" });
+    tick.textContent = `${Math.round(fraction * 100)}%`;
+    svg.appendChild(tick);
+  });
+
+  const series = [
+    { key: "veteran_rate", color: "var(--series-1)", name: "Non-rookies" },
+    { key: "rookie_rate", color: "var(--diverge-neg)", name: "Rookies" },
+  ];
+
+  series.forEach(({ key, color }) => {
+    const points = rounds.map((round, index) => [xFor(index), yFor(trend[key][index])])
+      .filter((point, index) => trend[key][index] !== null);
+    if (points.length < 2) return;
+    svg.appendChild(svgEl("path", {
+      d: linePath(points), fill: "none", stroke: color, "stroke-width": 2,
+      "stroke-linejoin": "round", "stroke-linecap": "round",
+    }));
+    rounds.forEach((round, index) => {
+      const rate = trend[key][index];
+      if (rate === null) return;
+      const dot = svgEl("circle", { cx: xFor(index), cy: yFor(rate), r: 7, fill: "transparent" });
+      const visible = svgEl("circle", { cx: xFor(index), cy: yFor(rate), r: 2.5, fill: color });
+      const sample = key === "rookie_rate" ? `${trend.rookie_entries[index]} rookie entries so far` : null;
+      tipFor(dot, [`Round ${round}`, `${pct(rate)} cumulative points-finish rate`, sample].filter(Boolean));
+      svg.appendChild(visible);
+      svg.appendChild(dot);
+    });
+  });
+
+  [1, Math.round(n / 2), n].forEach((roundIndex) => {
+    const index = roundIndex - 1;
+    if (index < 0 || index >= n) return;
+    const tick = svgEl("text", {
+      class: "chart__tick", x: xFor(index), y: height - padBottom + 18,
+      "text-anchor": index === 0 ? "start" : index === n - 1 ? "end" : "middle",
+    });
+    tick.textContent = `R${rounds[index]}`;
+    svg.appendChild(tick);
+  });
+
+  svg.appendChild(svgEl("line", {
+    class: "chart__axis", x1: padLeft, y1: padTop + plotHeight, x2: width - padRight, y2: padTop + plotHeight,
+  }));
+  container.appendChild(svg);
+
+  const legend = el("div", "legend");
+  series.forEach(({ color, name }) => {
+    const item = el("div", "legend__item");
+    const swatch = el("span", "legend__swatch");
+    swatch.style.background = color;
+    item.appendChild(swatch);
+    item.appendChild(el("span", null, name));
+    legend.appendChild(item);
+  });
+  container.appendChild(legend);
+
+  const sub = $("#trend-sub");
+  if (sub) {
+    const gap = trend.veteran_rate[n - 1] - trend.rookie_rate[n - 1];
+    const lead = gap >= 0 ? "non-rookies are scoring" : "rookies are scoring";
+    sub.textContent =
+      `Cumulative points-finish rate through each round — rookies vs. everyone else. By round ` +
+      `${rounds[n - 1]}, ${lead} ${pct(Math.abs(gap), 0)} more often than the other group, and the ` +
+      `gap between the two lines shows whether that's closing as the season goes on or holding steady.`;
+  }
+}
+
 /* ---- coverage, as plain DOM (a bar per row needs no SVG) ---------------- */
+
+// Only a feature with an actual gap earns a bar -- most seasons run every
+// position/standing/experience input at 100%, and seven rows that all read
+// "100%" bury the two that don't in noise instead of drawing the eye to them.
+const COVERAGE_MIN_MISSING_PCT = 0.01;
 
 function renderCoverage(container, missingness, total) {
   container.innerHTML = "";
+  const gapped = missingness.filter((row) => row.missing_pct >= COVERAGE_MIN_MISSING_PCT);
+  const complete = missingness.filter((row) => row.missing_pct < COVERAGE_MIN_MISSING_PCT);
+
+  const sub = $("#coverage-sub");
+  if (sub) {
+    sub.textContent = complete.length
+      ? `${complete.map((row) => row.label).join(", ")} ${complete.length === 1 ? "is" : "are"} ` +
+        `populated for every entry this season. The gaps below are the only ones worth reading: ` +
+        `a rookie has no history at a circuit and no prior three races to average, so the model ` +
+        `imputes those rather than leaving them blank.`
+      : "How much of the season each input is actually populated for.";
+  }
+
+  if (!gapped.length) {
+    container.innerHTML = "";
+    container.appendChild(el("p", "footnote", "Every input is fully populated this season -- nothing here is imputed."));
+    return;
+  }
+
   const box = el("div", "coverage");
-  missingness.forEach((row) => {
+  gapped.forEach((row) => {
     const line = el("div", "coverage__row");
     line.appendChild(el("div", "coverage__label", row.label));
     const track = el("div", "coverage__track");
@@ -1210,9 +1434,8 @@ function renderCoverage(container, missingness, total) {
     fill.style.width = `${(1 - row.missing_pct) * 100}%`;
     track.appendChild(fill);
     line.appendChild(track);
-    line.appendChild(el("div", "coverage__value",
-      row.missing ? `${pct(1 - row.missing_pct, 0)}` : "100%"));
-    line.title = `${total - row.missing} of ${total} entries have a value`;
+    line.appendChild(el("div", "coverage__value", pct(1 - row.missing_pct, 0)));
+    line.title = `${total - row.missing} of ${total} entries have a value (${row.missing} imputed)`;
     box.appendChild(line);
   });
   container.appendChild(box);
@@ -1295,6 +1518,8 @@ function renderAnalytics() {
   );
   renderDistributions($("#chart-distributions"), report.distributions, report.missingness);
   renderTeamChart($("#chart-teams"), report.by_team);
+  renderTeamDonut($("#chart-team-share"), report.by_team);
+  renderTrendChart($("#chart-trend"), report.experience_trend);
   renderCoverage($("#analytics-coverage"), report.missingness, report.headline.entries);
 
   $("#analytics-footnote").textContent =
