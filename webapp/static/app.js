@@ -1306,7 +1306,22 @@ function linePath(points) {
 
 function renderTrendChart(container, trend) {
   container.innerHTML = "";
-  if (!trend.rounds.length) return;
+  // Defensive against a response that hasn't caught up yet (a server still
+  // running the previous analytics.py, or a browser holding a cached
+  // response from before this field existed) -- trend can be undefined, or
+  // present with too few rounds to plot a line against. Either way, fail
+  // into a clear message rather than throwing: an uncaught exception here
+  // would abort renderAnalytics() partway through and leave every panel
+  // AFTER this one (coverage, the footnote) blank too, which is a much
+  // more confusing failure than this one chart saying why it's empty.
+  const rounds = trend && Array.isArray(trend.rounds) ? trend.rounds : [];
+  if (rounds.length < 2) {
+    container.appendChild(el("p", "footnote",
+      rounds.length === 0
+        ? "Not enough completed rounds yet this season to show a trend."
+        : "Only one completed round so far this season -- check back after the next race."));
+    return;
+  }
 
   const width = chartWidth(container);
   const height = 236;
@@ -1316,7 +1331,6 @@ function renderTrendChart(container, trend) {
   const padRight = 10;
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
-  const rounds = trend.rounds;
   const n = rounds.length;
   const xFor = (index) => padLeft + (n <= 1 ? 0 : (plotWidth * index) / (n - 1));
   // Fixed 0-100% domain, matching the bucket chart above -- autoscaling to
@@ -1500,6 +1514,19 @@ function renderAnalyticsChips(report) {
   });
 }
 
+// One bad panel throwing should never blank out every panel drawn after it
+// in source order -- that turned a single missing field (see
+// renderTrendChart) into what looked like the whole page being broken. Each
+// renderer runs in its own try/catch; a failure is logged and left visible
+// as a short message in that panel only, and every other panel still draws.
+function renderPanel(label, fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error(`Analytics panel failed: ${label}`, error);
+  }
+}
+
 function renderAnalytics() {
   const report = state.analytics;
   if (!report) return;
@@ -1509,18 +1536,18 @@ function renderAnalytics() {
     `over the ${report.year} season only. Older seasons ran different cars, rules and grids, ` +
     `so they say little about the next race.`;
 
-  renderStatCards(report);
-  renderAnalyticsChips(report);
-  renderCorrelationChart($("#chart-correlation"), report.correlations);
-  renderBucketChart(
+  renderPanel("stat cards", () => renderStatCards(report));
+  renderPanel("chips", () => renderAnalyticsChips(report));
+  renderPanel("correlation", () => renderCorrelationChart($("#chart-correlation"), report.correlations));
+  renderPanel("bucket", () => renderBucketChart(
     $("#chart-bucket"),
     report.rate_by_bucket.find((entry) => entry.feature === state.analyticsFeature),
-  );
-  renderDistributions($("#chart-distributions"), report.distributions, report.missingness);
-  renderTeamChart($("#chart-teams"), report.by_team);
-  renderTeamDonut($("#chart-team-share"), report.by_team);
-  renderTrendChart($("#chart-trend"), report.experience_trend);
-  renderCoverage($("#analytics-coverage"), report.missingness, report.headline.entries);
+  ));
+  renderPanel("distributions", () => renderDistributions($("#chart-distributions"), report.distributions, report.missingness));
+  renderPanel("team rate", () => renderTeamChart($("#chart-teams"), report.by_team));
+  renderPanel("team share", () => renderTeamDonut($("#chart-team-share"), report.by_team));
+  renderPanel("rookie trend", () => renderTrendChart($("#chart-trend"), report.experience_trend));
+  renderPanel("coverage", () => renderCoverage($("#analytics-coverage"), report.missingness, report.headline.entries));
 
   $("#analytics-footnote").textContent =
     "Every value here is read from the same feature table the model is trained and scored on — " +
