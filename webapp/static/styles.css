@@ -595,7 +595,9 @@ a { color: inherit; text-decoration: none; }
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 18%;
+  /* Tuned on the actual headshot bundle: 18% clipped the chin off the
+     taller portraits and 50% cut foreheads, so faces sit right at 30%. */
+  object-position: center 30%;
   opacity: 0;
   transition: opacity 0.5s var(--ease);
 }

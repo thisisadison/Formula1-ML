@@ -40,6 +40,10 @@ const state = {
 
 const STATUS_POLL_MS = 60_000;
 
+// Leading entries whose breakdown is expanded on arrival, for the most
+// recent race only (see driverCard's `open`).
+const OPEN_BY_DEFAULT = 5;
+
 const FEATURE_LABELS = {
   driver_standing_before: "Championship pos.",
   constructor_standing_before: "Constructor pos.",
@@ -263,18 +267,24 @@ function localPhoto(src, className) {
   return img;
 }
 
-// showDriverPhoto is false for anything but the current grid (the "Next
-// race" tab, or a replay of the single most recent race) -- driver CODES
-// get reused across eras (VER is both Verstappen today and Vergne in
-// 2012-2014; see reference.py's CURRENT_GRID), so a photo keyed only by
-// code would show the wrong person's face on an older replay. Team ids
-// don't have that collision, so team badges show everywhere.
-function avatarFor(driver, team, showDriverPhoto) {
+// Two separate image bundles doing two separate jobs:
+//
+//   driver.headshot  -> this circular grid icon, shown for any race in the
+//                       CURRENT season (the drivers are all still current,
+//                       so the face is right for every round of it)
+//   driver.photo     -> the large image in the expanded panel, shown only
+//                       for the single most recent race
+//
+// Both are gated because driver CODES get reused across eras (VER is both
+// Verstappen today and Vergne in 2012-2014; see reference.py's
+// CURRENT_GRID), so an image keyed by code would put the wrong face on an
+// older replay. Team ids have no such collision, so badges show anywhere.
+function avatarFor(driver, team, showHeadshot) {
   const avatar = el("div", "avatar");
   avatar.style.background = `linear-gradient(150deg, ${team.color}, ${team.color}55)`;
   avatar.appendChild(el("span", null, driver.code));
-  if (showDriverPhoto && driver.photo) {
-    avatar.appendChild(localPhoto(driver.photo));
+  if (showHeadshot && driver.headshot) {
+    avatar.appendChild(localPhoto(driver.headshot));
   }
   return avatar;
 }
@@ -294,7 +304,8 @@ function featureBlock(key, value) {
   return box;
 }
 
-function driverCard(row, index, showActual, showDriverPhoto) {
+function driverCard(row, index, showActual, options) {
+  const { showHeadshot = false, showRacePhoto = false, open = false } = options || {};
   const card = el("article", "card");
   card.style.setProperty("--team", row.team.color);
   // predicted_points IS the top 10 rows by probability, not a raw
@@ -305,7 +316,7 @@ function driverCard(row, index, showActual, showDriverPhoto) {
 
   const main = el("div", "card__main");
   main.appendChild(el("div", "card__rank", String(index + 1)));
-  main.appendChild(avatarFor(row.driver, row.team, showDriverPhoto));
+  main.appendChild(avatarFor(row.driver, row.team, showHeadshot));
 
   const who = el("div", "card__who");
   who.appendChild(el("div", "card__name", row.driver.name));
@@ -357,11 +368,11 @@ function driverCard(row, index, showActual, showDriverPhoto) {
 
   // The photo sits BESIDE the stats, not above them: the stats are only a
   // two-row block, so a full-width banner pushed them most of a screen
-  // down for no extra information. Only where showDriverPhoto allows one
+  // down for no extra information. Only where showRacePhoto allows one
   // (see avatarFor's comment). The outer .card__detail already slides the
   // whole panel open (grid-template-rows), so the photo only needs its own
   // opacity fade, timed to land just after that, rather than popping in.
-  if (showDriverPhoto && row.driver.photo) {
+  if (showRacePhoto && row.driver.photo) {
     const photo = el("div", "card__photo");
     const img = localPhoto(row.driver.photo);
     // A missing file has to collapse the whole column, not just the img --
@@ -387,6 +398,11 @@ function driverCard(row, index, showActual, showDriverPhoto) {
   card.appendChild(detail);
 
   main.addEventListener("click", () => card.classList.toggle("is-open"));
+  // Opened on arrival for the leading entries of the most recent race, so
+  // the landing view shows the reasoning rather than a list of closed rows
+  // the reader has to know to tap. Still a plain class, so the first click
+  // collapses it exactly as if they'd opened it themselves.
+  if (open) card.classList.add("is-open");
   return card;
 }
 
@@ -479,19 +495,29 @@ async function loadPredictions() {
     scoreline.classList.remove("is-hidden");
   }
 
-  // Driver photos only for the current grid -- codes are reused across
-  // eras (see avatarFor's comment), so an older replay could show the
-  // wrong person. "Current grid" is the upcoming tab (always today's
-  // drivers) or a replay of the single most recent race; state.races is
-  // already newest-first, so [0] is that race whenever it loaded.
+  // state.races is newest-first, so [0] is the most recent completed race
+  // and its year is the season currently being run.
+  const mostRecent = state.races.length ? state.races[0] : null;
   const isMostRecentReplay =
-    isReplay && state.races.length > 0 && payload.race.race_id === state.races[0].race_id;
-  const showDriverPhoto = !isReplay || isMostRecentReplay;
+    isReplay && mostRecent !== null && payload.race.race_id === mostRecent.race_id;
+
+  // Headshots cover the whole current season: every round of it was raced
+  // by the drivers on today's grid, so the face is right for all of them.
+  // The big panel photo is deliberately narrower -- most recent race only.
+  const raceYear = isReplay ? payload.race.year : payload.predicted_for.year;
+  const currentSeason = mostRecent ? mostRecent.year
+    : (state.status && state.status.data.next_slot.year) || null;
+  const showHeadshot = currentSeason !== null && raceYear === currentSeason;
+  const showRacePhoto = isMostRecentReplay;
 
   const list = $("#driver-list");
   list.innerHTML = "";
   payload.drivers.forEach((row, index) =>
-    list.appendChild(driverCard(row, index, isReplay, showDriverPhoto))
+    list.appendChild(driverCard(row, index, isReplay, {
+      showHeadshot,
+      showRacePhoto,
+      open: isMostRecentReplay && index < OPEN_BY_DEFAULT,
+    }))
   );
 
   $("#predictions-footnote").textContent = isReplay
@@ -1620,6 +1646,12 @@ window.addEventListener("resize", () => {
   await loadStatus();
   try {
     await loadPickers();
+    // Land on the most recent race rather than the next one. It's the only
+    // view where every number can be checked against a result that actually
+    // happened, which is a far better first impression than a prediction
+    // nobody can evaluate yet -- and loadPickers has already pointed
+    // state.raceId at it. The "Next race" tab is one tap away.
+    if (state.raceId) setMode("replay");
   } catch (error) {
     /* pickers are best-effort; predictions still work with the defaults */
   }

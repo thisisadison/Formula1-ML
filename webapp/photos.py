@@ -45,21 +45,26 @@ def normalise(text) -> str:
     return "".join(ch for ch in without_marks.lower() if ch.isalnum())
 
 
-def _last_token(stem: str) -> str:
-    """The surname-ish tail of a filename stem: the part after the last
-    separator, so `kimi_antonelli` also answers to `antonelli`."""
+def _tokens(stem: str) -> list:
+    """Filename stem split on any separator: `kimi_antonelli` -> two parts."""
     for separator in ("_", "-", " "):
         stem = stem.replace(separator, " ")
-    parts = stem.split()
-    return parts[-1] if parts else ""
+    return stem.split()
 
 
 class PhotoIndex:
-    """One directory of images, looked up by any reasonable name for them."""
+    """One directory of images, looked up by any reasonable name for them.
 
-    def __init__(self, subdirectory: str):
+    strip_tokens drops a trailing tag from the stem before keys are built.
+    The headshot bundle is named `max_verstappen_hs.jpg`, and without this
+    every file in it would key on "hs" as its last token and answer for
+    every driver at once.
+    """
+
+    def __init__(self, subdirectory: str, strip_tokens=()):
         self.directory = os.path.join(STATIC_DIR, "photos", subdirectory)
         self.url_prefix = f"/photos/{subdirectory}"
+        self.strip_tokens = {token.lower() for token in strip_tokens}
         self._index = {}
         self._mtime = None
         self.refresh()
@@ -86,10 +91,13 @@ class PhotoIndex:
             # case-sensitively on Linux, so a lowercased ".jpg" would 404
             # against a file actually saved as ".JPG".
             url = f"{self.url_prefix}/{filename}"
-            index.setdefault(normalise(stem), url)
-            tail = normalise(_last_token(stem))
-            if tail:
-                secondary.setdefault(tail, url)
+            tokens = _tokens(stem)
+            while len(tokens) > 1 and tokens[-1].lower() in self.strip_tokens:
+                tokens.pop()
+            if not tokens:
+                continue
+            index.setdefault(normalise("".join(tokens)), url)
+            secondary.setdefault(normalise(tokens[-1]), url)
 
         # Full-stem keys win over surname keys, so two drivers sharing a
         # surname still resolve correctly whenever both files carry a full

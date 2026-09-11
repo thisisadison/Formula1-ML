@@ -37,6 +37,7 @@ CURRENT_GRID = {
     "HUL": ("Nico", "Hulkenberg", "German"),
     "LAW": ("Liam", "Lawson", "New Zealander"),
     "LEC": ("Charles", "Leclerc", "Monegasque"),
+    "LIN": ("Arvid", "Lindblad", "British"),
     "MAG": ("Kevin", "Magnussen", "Danish"),
     "NOR": ("Lando", "Norris", "British"),
     "OCO": ("Esteban", "Ocon", "French"),
@@ -133,6 +134,11 @@ class Reference:
         self._team_names = {}  # filled by augment() from the live roster
         self._circuit_names_by_numeric_id = self._build_circuit_directory(raw["races"])
         self._driver_photos = PhotoIndex("drivers")
+        # Separate bundle, separate job: the headshot is the circular grid
+        # icon, the drivers/ shot is the big image in the expanded panel.
+        # "_hs" is stripped so `max_verstappen_hs.jpg` keys the same way
+        # `max_verstappen.JPG` does in the other directory.
+        self._driver_headshots = PhotoIndex("driver_headshot", strip_tokens=("hs", "headshot"))
         self._team_photos = PhotoIndex("teams")
 
     @staticmethod
@@ -186,16 +192,17 @@ class Reference:
 
     def driver(self, code: str) -> dict:
         info = self._drivers.get(code)
-        if info is None:
-            return {"code": code, "name": code, "nationality": None,
-                    "wiki_url": None, "photo": self._driver_photo(code, code)}
-        return {"code": code, **info, "photo": self._driver_photo(code, info["name"])}
-
-    def _driver_photo(self, code: str, name: str) -> str:
+        name = code if info is None else info["name"]
+        extra = {
+            "photo": self._driver_photos.lookup(name, surname(name), code),
+            "headshot": self._driver_headshots.lookup(name, surname(name), code),
+        }
         # Full name first, then surname, then code -- most specific wins, so
         # a file named for one Magnussen can't answer for the other unless
         # surname is all either file gives us. See webapp/photos.py.
-        return self._driver_photos.lookup(name, surname(name), code)
+        if info is None:
+            return {"code": code, "name": code, "nationality": None, "wiki_url": None, **extra}
+        return {"code": code, **info, **extra}
 
     def team(self, constructor_id) -> dict:
         key = str(constructor_id)
