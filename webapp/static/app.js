@@ -1515,34 +1515,23 @@ function renderTrendChart(container, trend) {
 
 /* ---- coverage, as plain DOM (a bar per row needs no SVG) ---------------- */
 
-// Only a feature with an actual gap earns a bar -- most seasons run every
-// position/standing/experience input at 100%, and seven rows that all read
-// "100%" bury the two that don't in noise instead of drawing the eye to them.
-const COVERAGE_MIN_MISSING_PCT = 0.01;
-
 function renderCoverage(container, missingness, total) {
   container.innerHTML = "";
-  const gapped = missingness.filter((row) => row.missing_pct >= COVERAGE_MIN_MISSING_PCT);
-  const complete = missingness.filter((row) => row.missing_pct < COVERAGE_MIN_MISSING_PCT);
 
   const sub = $("#coverage-sub");
   if (sub) {
-    sub.textContent = complete.length
-      ? `${complete.map((row) => row.label).join(", ")} ${complete.length === 1 ? "is" : "are"} ` +
-        `populated for every entry this season. The gaps below are the only ones worth reading: ` +
-        `a rookie has no history at a circuit and no prior three races to average, so the model ` +
-        `imputes those rather than leaving them blank.`
-      : "How much of the season each input is actually populated for.";
+    sub.textContent =
+      "How much of the season each input is actually populated for. A rookie has no history at a " +
+      "circuit and no prior three races to average, so the model imputes those rather than leaving " +
+      "them blank -- everything below 100% is how often that's happening.";
   }
 
-  if (!gapped.length) {
-    container.innerHTML = "";
-    container.appendChild(el("p", "footnote", "Every input is fully populated this season -- nothing here is imputed."));
-    return;
-  }
-
+  // Every feature gets a row, always -- a shorter list here previously
+  // hid the fully-populated ones behind a summary sentence, which read as
+  // "some features are just missing from this chart" rather than "these
+  // are all at 100%."
   const box = el("div", "coverage");
-  gapped.forEach((row) => {
+  missingness.forEach((row) => {
     const line = el("div", "coverage__row");
     line.appendChild(el("div", "coverage__label", row.label));
     const track = el("div", "coverage__track");
@@ -1551,7 +1540,9 @@ function renderCoverage(container, missingness, total) {
     track.appendChild(fill);
     line.appendChild(track);
     line.appendChild(el("div", "coverage__value", pct(1 - row.missing_pct, 0)));
-    line.title = `${total - row.missing} of ${total} entries have a value (${row.missing} imputed)`;
+    line.title = row.missing
+      ? `${total - row.missing} of ${total} entries have a value (${row.missing} imputed)`
+      : `${total} of ${total} entries have a value -- nothing imputed`;
     box.appendChild(line);
   });
   container.appendChild(box);
