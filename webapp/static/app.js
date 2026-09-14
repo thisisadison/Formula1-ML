@@ -1329,9 +1329,12 @@ const DONUT_MAX_SLICES = 6;
 // unrelated categories, so this is a sequential ramp -- one hue, light to
 // dark -- rather than a categorical palette. Identity comes from the text
 // label beside each slice, not from the color needing to be unique.
+// Hue 35/68% is --series-2's amber (styles.css) -- given as an HSL triple
+// rather than the CSS var because the ramp needs to vary the lightness
+// step per slice, which var() can't parameterize.
 function donutColor(index, count) {
   const lightness = count <= 1 ? 45 : 34 + (index * (78 - 34)) / (count - 1);
-  return `hsl(213 62% ${Math.round(lightness)}%)`;
+  return `hsl(35 68% ${Math.round(lightness)}%)`;
 }
 
 function renderTeamDonut(container, rows) {

@@ -1068,13 +1068,22 @@ a { color: inherit; text-decoration: none; }
 
 /* ------------------------------------------------------------- analytics */
 
-/* Chart ink and series colours. Validated against THIS app's surface
-   (#131316), not a reference one: slot-1 blue vs the diverging red measure
-   CVD dE 19.2 / normal-vision 29.0, both clear of the 8 / 15 floors. */
+/* Chart ink and series colours. Each pair that actually appears together
+   in one legend was checked with node scripts/validate_palette.js from
+   the dataviz skill against THIS app's dark surface (#131316), not
+   eyeballed:
+     --series-1 alone                          L 0.63 (band 0.48-0.67) PASS
+     --diverge-neg / --diverge-pos (correlation) CVD dE 11.3 / normal 25.7 PASS
+     --series-1 / --series-2 (team panel)        CVD dE 28.3 / normal 28.0 PASS
+     --series-1 / --diverge-neg (rookie trend)   CVD dE 24.6 / normal 26.3 PASS
+   --diverge-neg is reused as "rookies" on the trend chart rather than
+   adding a fifth hue -- it's already validated against --series-1, which
+   is what that chart's other line uses. */
 :root {
-  --series-1:   #3987e5;   /* single-series bars, histograms */
-  --diverge-neg: #e66767;  /* diverging arm: correlation < 0 */
-  --diverge-pos: #3987e5;  /* diverging arm: correlation > 0 */
+  --series-1:    #8b7cf0;  /* single-series bars, histograms, coverage */
+  --series-2:    #bd7d24;  /* second sequential hue -- the team-share donut */
+  --diverge-neg: #e0654b;  /* correlation < 0, and "rookies" on the trend chart */
+  --diverge-pos: #22a190;  /* correlation > 0, and "non-rookies" on the trend chart */
   --chart-muted: #898781;  /* axis + tick labels */
   --chart-grid:  #2c2c2a;  /* hairline gridlines */
   --chart-axis:  #383835;  /* baseline / zero rule */
