@@ -529,6 +529,15 @@ async function loadPredictions() {
 
 /* ------------------------------------------------------------------ season */
 
+// The circuit for "whichever race hasn't been run yet" -- authoritative
+// because it's read straight off the live calendar's is_next flag, not
+// carried over from whatever was last selected. Returns null before the
+// schedule has loaded.
+function nextRaceCircuit() {
+  const next = state.seasonRounds.find((round) => round.is_next);
+  return next ? next.circuit.id : null;
+}
+
 async function loadSeason() {
   let payload;
   try {
@@ -538,6 +547,17 @@ async function loadSeason() {
   }
   state.seasonRounds = payload.rounds;
   state.seasonYear = payload.year;
+  // Sync the default "next race" circuit now that the real calendar is
+  // known -- state.circuit starts out hardcoded (see `state` above) and
+  // was never otherwise corrected once the actual next round was known,
+  // which is why the upcoming tab kept showing a stale circuit (Singapore)
+  // regardless of which race had actually just finished. Left alone when
+  // the reader has a specific future round selected (state.upcomingRound)
+  // -- that's a deliberate preview, not the default "what's next" view.
+  if (!state.upcomingRound) {
+    const next = nextRaceCircuit();
+    if (next) state.circuit = next;
+  }
   const done = payload.rounds.filter((round) => round.completed).length;
   $("#season-label").textContent =
     `${payload.year} Season — ${done} of ${payload.rounds.length} races run`;
@@ -649,7 +669,15 @@ async function loadPickers() {
 
 function setMode(mode) {
   state.mode = mode;
-  if (mode === "upcoming") state.upcomingRound = null; // resolved via the season strip, not here
+  if (mode === "upcoming") {
+    state.upcomingRound = null; // resolved via the season strip, not here
+    // Re-resolve on every switch into this tab, not just at boot -- if the
+    // page has been open across a race weekend, the calendar's next round
+    // has moved on since loadSeason() last ran, and this is what keeps the
+    // "Next race" pill from showing whichever circuit was clicked last.
+    const next = nextRaceCircuit();
+    if (next) state.circuit = next;
+  }
   $$(".segmented__opt").forEach((opt) => opt.classList.toggle("is-active", opt.dataset.mode === mode));
   updatePickerVisibility();
 }

@@ -93,7 +93,11 @@ def _fallback_team_color(constructor_id: str) -> str:
     return f"hsl({(digest % 24) * 15}, 62%, 55%)"
 
 # Slugs seen in the 2023+ data, plus the official circuit name and the
-# country it sits in (for the flag chip in the UI).
+# country it sits in (for the flag chip in the UI). Hand-maintained, so a
+# new circuit added to the real-world calendar (Madring, Sepang's 2026
+# return) has no entry until someone adds one -- circuit() below falls
+# back to a titled slug with no country in the meantime, which is a
+# missing flag, not a crash.
 CIRCUITS = {
     "albert_park": ("Albert Park Circuit", "Melbourne", "au"),
     "americas": ("Circuit of the Americas", "Austin", "us"),
@@ -105,12 +109,14 @@ CIRCUITS = {
     "interlagos": ("Autodromo Jose Carlos Pace", "Sao Paulo", "br"),
     "jeddah": ("Jeddah Corniche Circuit", "Jeddah", "sa"),
     "losail": ("Lusail International Circuit", "Lusail", "qa"),
+    "madring": ("Madring", "Madrid", "es"),
     "marina_bay": ("Marina Bay Street Circuit", "Singapore", "sg"),
     "miami": ("Miami International Autodrome", "Miami", "us"),
     "monaco": ("Circuit de Monaco", "Monte Carlo", "mc"),
     "monza": ("Autodromo Nazionale Monza", "Monza", "it"),
     "red_bull_ring": ("Red Bull Ring", "Spielberg", "at"),
     "rodriguez": ("Autodromo Hermanos Rodriguez", "Mexico City", "mx"),
+    "sepang": ("Sepang International Circuit", "Kuala Lumpur", "my"),
     "shanghai": ("Shanghai International Circuit", "Shanghai", "cn"),
     "silverstone": ("Silverstone Circuit", "Silverstone", "gb"),
     "spa": ("Circuit de Spa-Francorchamps", "Spa", "be"),
