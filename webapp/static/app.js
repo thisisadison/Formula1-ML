@@ -243,7 +243,7 @@ async function loadStatus() {
     state.lastRetrainedAt = autoUpdate.last_retrained;
     if (!isFirstStatus) {
       loadPredictions();
-      loadSeason();
+      seasonReady = loadSeason(); // re-run and refresh the cached promise, not just append a second in-flight call
     }
   }
 }
@@ -538,6 +538,21 @@ function nextRaceCircuit() {
   return next ? next.circuit.id : null;
 }
 
+// loadSeason() runs unawaited from boot() -- it's a real network round
+// trip, and nothing about first paint should wait on it. But that means a
+// reader who clicks "Next race" fast enough can beat it to the punch: the
+// click reads state.circuit before this has ever corrected it away from
+// its hardcoded boot default, so the request goes out for the wrong
+// circuit and nothing about that request knows to retry. seasonReady is
+// the fix -- anything that needs the real calendar before trusting
+// nextRaceCircuit() awaits this instead of assuming loadSeason() already
+// ran, so the check-then-use is atomic no matter how fast the click was.
+let seasonReady = null;
+function ensureSeasonLoaded() {
+  if (!seasonReady) seasonReady = loadSeason();
+  return seasonReady;
+}
+
 async function loadSeason() {
   let payload;
   try {
@@ -545,6 +560,7 @@ async function loadSeason() {
   } catch (error) {
     return; // an enhancement, not a requirement -- leave the strip hidden
   }
+  const previousCircuit = state.circuit;
   state.seasonRounds = payload.rounds;
   state.seasonYear = payload.year;
   // Sync the default "next race" circuit now that the real calendar is
@@ -564,6 +580,15 @@ async function loadSeason() {
   $("#season").classList.toggle("is-hidden", payload.rounds.length === 0);
   renderSeasonStrip();
   updatePickerVisibility();
+
+  // If the reader is already sitting on the upcoming tab and this load
+  // just corrected state.circuit out from under them -- the race
+  // described above, or the schedule genuinely advancing while the tab
+  // sat open across a race weekend -- the cards on screen are now stale
+  // even though the strip above them just redrew correctly. Catch up.
+  if (state.mode === "upcoming" && !state.upcomingRound && state.circuit !== previousCircuit) {
+    loadPredictions();
+  }
 }
 
 function renderSeasonStrip() {
@@ -695,8 +720,18 @@ function updatePickerVisibility() {
 }
 
 $$(".segmented__opt").forEach((opt) => {
-  opt.addEventListener("click", () => {
-    setMode(opt.dataset.mode);
+  opt.addEventListener("click", async () => {
+    const mode = opt.dataset.mode;
+    // Block on the real calendar before trusting nextRaceCircuit() inside
+    // setMode() -- without this, a click that lands before loadSeason()
+    // (fired unawaited from boot) has resolved reads state.circuit while
+    // it's still sitting on its hardcoded boot default. The round NUMBER
+    // still comes out right either way (the server computes that from its
+    // own data independently of anything this request sends), which is
+    // what made the resulting bug so easy to miss: correct round, wrong
+    // circuit.
+    if (mode === "upcoming") await ensureSeasonLoaded();
+    setMode(mode);
     loadPredictions();
   });
 });
@@ -1684,6 +1719,6 @@ window.addEventListener("resize", () => {
     /* pickers are best-effort; predictions still work with the defaults */
   }
   await loadPredictions();
-  loadSeason(); // independent of the predictions path; doesn't block first paint
+  ensureSeasonLoaded(); // independent of the predictions path; doesn't block first paint
   setInterval(loadStatus, STATUS_POLL_MS);
 })();
