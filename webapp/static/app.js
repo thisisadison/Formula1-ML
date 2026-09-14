@@ -1290,12 +1290,17 @@ function renderTeamChart(container, rows) {
     svg.appendChild(label);
 
     const length = Math.max(2, plotWidth * row.rate);
-    // One series, and the team is already named on the axis -- painting each
-    // bar in its team colour would be decoration that encodes nothing.
+    // Each team's own livery colour, not a flat series hue -- teams are
+    // real, individually recognisable identities (and this exact colour
+    // already appears elsewhere in the app, on the driver cards), unlike
+    // the ordered feature buckets elsewhere on this page, where a category
+    // is really just a slice of one continuous measure and a single hue is
+    // the correct read. A name is still printed beside every bar, so
+    // identity never rests on colour alone.
     const bar = svgEl("path", {
       class: "chart__bar",
       d: barPath(plotLeft, y, length, barHeight, 4, "right"),
-      fill: "var(--series-1)",
+      fill: row.color || "var(--series-1)",
     });
     tipFor(bar, [
       row.name,
@@ -1325,17 +1330,9 @@ function renderTeamChart(container, rows) {
 // on its own anyway.
 const DONUT_MAX_SLICES = 6;
 
-// Share is a magnitude (how big a piece of one whole), not a set of
-// unrelated categories, so this is a sequential ramp -- one hue, light to
-// dark -- rather than a categorical palette. Identity comes from the text
-// label beside each slice, not from the color needing to be unique.
-// Hue 35/68% is --series-2's amber (styles.css) -- given as an HSL triple
-// rather than the CSS var because the ramp needs to vary the lightness
-// step per slice, which var() can't parameterize.
-function donutColor(index, count) {
-  const lightness = count <= 1 ? 45 : 34 + (index * (78 - 34)) / (count - 1);
-  return `hsl(35 68% ${Math.round(lightness)}%)`;
-}
+// A merged "N other teams" slice represents more than one constructor, so
+// no single livery colour would be accurate -- this stands in for it.
+const DONUT_OTHER_COLOR = "#5b5b58";
 
 function renderTeamDonut(container, rows) {
   container.innerHTML = "";
@@ -1350,6 +1347,7 @@ function renderTeamDonut(container, rows) {
         share: rest.reduce((sum, row) => sum + row.share, 0),
         scores: rest.reduce((sum, row) => sum + row.scores, 0),
         entries: rest.reduce((sum, row) => sum + row.entries, 0),
+        color: DONUT_OTHER_COLOR,
       }]
     : top;
   const totalScores = rows.reduce((sum, row) => sum + row.scores, 0);
@@ -1371,7 +1369,10 @@ function renderTeamDonut(container, rows) {
   let cumulative = 0;
   const legend = el("div", "donut__legend");
   slices.forEach((row, index) => {
-    const color = donutColor(index, slices.length);
+    // Same livery colour as the bar chart beside it -- a reader can match
+    // "the tall bar" to "the big slice" on sight instead of cross-checking
+    // two separate legends.
+    const color = row.color || DONUT_OTHER_COLOR;
     const dash = row.share * circumference;
     const circle = svgEl("circle", {
       cx, cy, r: radius,
