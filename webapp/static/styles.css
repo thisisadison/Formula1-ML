@@ -1072,15 +1072,15 @@ a { color: inherit; text-decoration: none; }
    in one legend was checked with node scripts/validate_palette.js from
    the dataviz skill against THIS app's dark surface (#131316), not
    eyeballed:
-     --series-1 alone                          L 0.63 (band 0.48-0.67) PASS
+     --series-1 alone                          L 0.55 (band 0.48-0.67) PASS
      --diverge-neg / --diverge-pos (correlation) CVD dE 11.3 / normal 25.7 PASS
-     --series-1 / --series-2 (team panel)        CVD dE 28.3 / normal 28.0 PASS
-     --series-1 / --diverge-neg (rookie trend)   CVD dE 24.6 / normal 26.3 PASS
+     --series-1 / --series-2 (team panel)        CVD dE 23.3 / normal 25.4 PASS
+     --series-1 / --diverge-neg (rookie trend)   CVD dE 20.2 / normal 28.2 PASS
    --diverge-neg is reused as "rookies" on the trend chart rather than
    adding a fifth hue -- it's already validated against --series-1, which
    is what that chart's other line uses. */
 :root {
-  --series-1:    #8b7cf0;  /* single-series bars, histograms, coverage */
+  --series-1:    #2f9bd6;  /* single-series bars, histograms, coverage */
   --series-2:    #bd7d24;  /* second sequential hue -- the team-share donut */
   --diverge-neg: #e0654b;  /* correlation < 0, and "rookies" on the trend chart */
   --diverge-pos: #22a190;  /* correlation > 0, and "non-rookies" on the trend chart */
